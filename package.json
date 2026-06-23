@@ -1,0 +1,17 @@
+{
+  "name": "trivia-game",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local Wi-Fi trivia game — build scripts for the single-server / single-exe distribution.",
+  "scripts": {
+    "build:web": "cd frontend && npm install && npm run build",
+    "bundle": "node scripts/bundle-html.mjs",
+    "build:server": "cd backend && npm install && cd .. && node scripts/build-server.mjs",
+    "start:prod": "node build/server.cjs",
+    "build:exe": "npm run build:web && npm run bundle && npm run build:server && node scripts/make-sea.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.1"
+  }
+}

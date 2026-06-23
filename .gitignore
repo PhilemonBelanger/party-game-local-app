@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+
+# build output / distribution artifacts
+dist/
+build/
+trivia
+trivia.exe
+*.zip
+
+# local env / secrets (LAN IP etc.)
+.env
+.env.*
+
+# local tooling / editor
+.claude/
+.vscode/
+.idea/
+.DS_Store
+*.log

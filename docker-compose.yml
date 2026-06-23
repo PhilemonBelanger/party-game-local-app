@@ -1,0 +1,27 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - TIME_LIMIT=30      # seconds per question (change me)
+      - BASE_POINTS=100    # points for a correct answer (fallback if not set in quiz.json)
+      # LAN IP for the QR/join URL. In Docker the container can't see the host's
+      # real IP, so start.ps1 sets this. (The exe auto-detects, no env needed.)
+      - HOST_LAN_IP=${HOST_LAN_IP:-}
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: npm run dev
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev
+    depends_on:
+      - backend
