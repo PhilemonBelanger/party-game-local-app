@@ -6,9 +6,10 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import os from 'os';
 // Generated at build time (single-file UI string). Stub exports null in dev.
-import { INDEX_HTML, DEFAULT_QUIZ } from './embedded.js';
+import { INDEX_HTML, DEFAULT_QUIZ, DEFAULT_FIBBAGE } from './embedded.js';
 import { ensureFirewall } from './firewall.js';
 import { createGartic } from './gartic.js';
+import { createFibbage } from './fibbage.js';
 
 // ESM dev: derive from import.meta.url. Bundled CJS (exe): that's undefined, so
 // fall back to the working dir (the exe relies on embedded assets anyway).
@@ -34,6 +35,17 @@ function loadDefaultQuiz() {
   }
 }
 let quiz = loadDefaultQuiz();
+
+// Fibbage prompt pool ({ normal:[], final:[] }): prefer fibbage_prompts.json on disk,
+// fall back to the embedded one (exe).
+function loadFibbagePool() {
+  try {
+    return JSON.parse(readFileSync(join(__dirname, 'fibbage_prompts.json'), 'utf-8'));
+  } catch {
+    return DEFAULT_FIBBAGE;
+  }
+}
+const fibbagePool = loadFibbagePool();
 
 // Best-effort LAN IP detection (skips loopback, VPN, WSL, virtual adapters).
 // Works when the server runs on the host (exe); inside Docker it sees the
@@ -132,7 +144,7 @@ const io = new Server(httpServer, {
 });
 
 // ---- authoritative game state ----
-let mode = 'trivia'; // 'trivia' | 'gartic'
+let mode = 'trivia'; // 'trivia' | 'gartic' | 'fibbage'
 const state = {
   phase: 'lobby', // lobby | question | reveal | section | podium
   questionIndex: -1,
@@ -188,6 +200,20 @@ function buildState() {
         })
       : [...players.values()].map((p) => ({ id: p.id, name: p.name, connected: p.connected, answered: false }));
     return { mode, title: 'Gartic Phone', players: list, ...gartic.buildState() };
+  }
+  if (mode === 'fibbage') {
+    // roster shows the in-game players while running (with live scores + a ✓ once
+    // they've submitted/voted this phase), or everyone in the lobby.
+    const list = fibbage.active()
+      ? fibbage.getPlayerKeys().map((key) => {
+          const p = players.get(key);
+          return {
+            id: key, name: p?.name || '?', connected: !!p?.connected,
+            answered: fibbage.isSubmitted(key), score: fibbage.scoreOf(key),
+          };
+        })
+      : [...players.values()].map((p) => ({ id: p.id, name: p.name, connected: p.connected, answered: false, score: 0 }));
+    return { mode, title: 'Fibbage', players: list, ...fibbage.buildState() };
   }
   const out = {
     mode,
@@ -247,6 +273,15 @@ const gartic = createGartic({
   broadcast,
   drawTime: parseInt(process.env.GARTIC_DRAW_TIME || '100', 10),
   guessTime: parseInt(process.env.GARTIC_GUESS_TIME || '60', 10),
+});
+
+const fibbage = createFibbage({
+  io,
+  getPlayers: () => players,
+  broadcast,
+  getPool: () => fibbagePool,
+  answerTime: parseInt(process.env.FIBBAGE_ANSWER_TIME || '60', 10),
+  voteTime: parseInt(process.env.FIBBAGE_VOTE_TIME || '100', 10),
 });
 
 function allAnswered() {
@@ -368,9 +403,10 @@ io.on('connection', (socket) => {
   });
 
   socket.on('host:setmode', (m) => {
-    mode = m === 'gartic' ? 'gartic' : 'trivia';
+    mode = m === 'gartic' ? 'gartic' : m === 'fibbage' ? 'fibbage' : 'trivia';
     gartic.reset();
-    resetGame(); // trivia back to lobby; harmless for gartic
+    fibbage.reset();
+    resetGame(); // trivia back to lobby; harmless for the other modes
     broadcast();
   });
 
@@ -394,6 +430,10 @@ io.on('connection', (socket) => {
       if (gartic.isInGame(key)) gartic.sendTaskTo(key); // reconnect → resume current task
       else socket.emit('gartic:task', { type: 'spectator' }); // mid-game joiner → spectate
     }
+    if (mode === 'fibbage' && fibbage.active()) {
+      if (fibbage.isInGame(key)) fibbage.syncTo(key); // reconnect → resume locked/unlocked state
+      else socket.emit('fibbage:sync', { spectator: true }); // mid-game joiner → spectate
+    }
   });
 
   socket.on('host:loadquiz', (data, cb) => {
@@ -413,6 +453,13 @@ io.on('connection', (socket) => {
       const keys = [...players.values()].filter((p) => p.connected).map((p) => p.id);
       if (keys.length < 2) return; // need at least 2 players
       gartic.start(keys);
+      return;
+    }
+    if (mode === 'fibbage') {
+      if (fibbage.active()) return; // already running
+      const keys = [...players.values()].filter((p) => p.connected).map((p) => p.id);
+      if (keys.length < 2) return; // need at least 2 players
+      fibbage.start(keys);
       return;
     }
     if (state.phase !== 'lobby' && state.phase !== 'podium') return;
@@ -439,6 +486,31 @@ io.on('connection', (socket) => {
   });
   socket.on('gartic:reveal', (dir) => {
     if (mode === 'gartic') gartic.revealNav(dir > 0 ? 1 : -1);
+  });
+
+  // ---- fibbage events ----
+  socket.on('fibbage:submit', (payload, cb) => {
+    const key = socketToKey.get(socket.id);
+    if (mode !== 'fibbage' || !key) {
+      if (typeof cb === 'function') cb({ ok: false, reason: 'inactive' });
+      return;
+    }
+    const obj = payload && typeof payload === 'object';
+    const res = fibbage.submitLie(key, obj ? payload.promptIndex : undefined, obj ? payload.text : payload);
+    if (typeof cb === 'function') cb(res);
+  });
+  socket.on('fibbage:draft', (payload) => {
+    const key = socketToKey.get(socket.id);
+    if (mode !== 'fibbage' || !key || !(payload && typeof payload === 'object')) return;
+    fibbage.draftLie(key, payload.promptIndex, payload.text);
+  });
+  socket.on('fibbage:vote', (payload) => {
+    const key = socketToKey.get(socket.id);
+    if (mode !== 'fibbage' || !key || !(payload && typeof payload === 'object')) return;
+    fibbage.vote(key, payload.promptIndex, payload.cardId, payload.thumbId ?? null);
+  });
+  socket.on('fibbage:next', () => {
+    if (mode === 'fibbage') fibbage.next();
   });
 
   socket.on('player:answer', (value) => {
@@ -469,6 +541,11 @@ io.on('connection', (socket) => {
   socket.on('host:reset', () => {
     if (mode === 'gartic') {
       gartic.reset(); // back to gartic lobby
+      broadcast();
+      return;
+    }
+    if (mode === 'fibbage') {
+      fibbage.reset(); // back to fibbage lobby
       broadcast();
       return;
     }

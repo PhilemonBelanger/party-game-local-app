@@ -6,6 +6,8 @@ import PlayerView from './views/PlayerView.jsx';
 import CreatorView from './views/CreatorView.jsx';
 import GarticHostView from './views/GarticHostView.jsx';
 import GarticPlayerView from './views/GarticPlayerView.jsx';
+import FibbageHostView from './views/FibbageHostView.jsx';
+import FibbagePlayerView from './views/FibbagePlayerView.jsx';
 
 export default function App() {
   const [role, setRole] = useState(null); // null | 'host' | 'player'
@@ -48,18 +50,20 @@ export default function App() {
   }
 
   const gartic = state?.mode === 'gartic';
+  const fibbage = state?.mode === 'fibbage';
 
   if (!role) {
     return (
       <Home
         onPickHost={() => pickHost('trivia')}
         onPickGartic={() => pickHost('gartic')}
+        onPickFibbage={() => pickHost('fibbage')}
         onJoin={join}
         onCreate={() => setRole('creator')}
       />
     );
   }
   if (role === 'creator') return <CreatorView onBack={() => setRole(null)} />;
-  if (role === 'host') return gartic ? <GarticHostView state={state} /> : <HostView state={state} />;
-  return gartic ? <GarticPlayerView state={state} /> : <PlayerView state={state} me={me} />;
+  if (role === 'host') return gartic ? <GarticHostView state={state} /> : fibbage ? <FibbageHostView state={state} /> : <HostView state={state} />;
+  return gartic ? <GarticPlayerView state={state} /> : fibbage ? <FibbagePlayerView state={state} me={me} /> : <PlayerView state={state} me={me} />;
 }

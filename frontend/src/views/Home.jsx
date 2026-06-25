@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useI18n, LANGS } from '../i18n.jsx';
 
-export default function Home({ onPickHost, onPickGartic, onJoin, onCreate }) {
+export default function Home({ onPickHost, onPickGartic, onPickFibbage, onJoin, onCreate }) {
   const { t, lang, setLang } = useI18n();
   const [name, setName] = useState('');
   const valid = name.trim().length > 0;
@@ -38,6 +38,9 @@ export default function Home({ onPickHost, onPickGartic, onJoin, onCreate }) {
       </button>
       <button className="ghost" onClick={onPickGartic}>
         {t('home.host.gartic')}
+      </button>
+      <button className="ghost" onClick={onPickFibbage}>
+        {t('home.host.fibbage')}
       </button>
       <button className="ghost" onClick={onCreate}>
         {t('home.create')}

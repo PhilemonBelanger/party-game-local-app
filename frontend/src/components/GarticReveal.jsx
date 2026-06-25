@@ -2,15 +2,27 @@ import Fireworks from './Fireworks.jsx';
 import DrawReplay from './DrawReplay.jsx';
 import { useT } from '../i18n.jsx';
 
-const norm = (s) => (typeof s === 'string' ? s.trim().toLowerCase() : null);
+// Normalize for matching: strip accents (é/è/ê -> e), lowercase, collapse whitespace.
+const norm = (s) =>
+  typeof s === 'string'
+    ? s
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '') // drop combining diacritic marks
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, ' ')
+    : null;
 
 // Renders one entry of a Gartic story chain (shared by host + player reveal screens).
 export default function GarticReveal({ reveal }) {
   const t = useT();
   if (!reveal) return null;
   const { book, entry, totalBooks, totalEntries, seedAuthor, seedPrompt, type, content, author } = reveal;
-  // exact match: a guess that equals the original prompt (case-insensitive) → celebrate
-  const exactMatch = type === 'guess' && content && norm(content) === norm(seedPrompt);
+  // Match: a guess that CONTAINS the original prompt (accent/case-insensitive) → celebrate.
+  // e.g. prompt "blue cat" + guess "a big blue cat" counts; empty prompt never matches.
+  const np = norm(seedPrompt);
+  const ng = norm(content);
+  const exactMatch = type === 'guess' && !!np && !!ng && ng.includes(np);
   return (
     <div className="g-reveal">
       {exactMatch && <Fireworks key={`${book}-${entry}`} />}
