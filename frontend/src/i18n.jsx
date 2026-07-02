@@ -150,6 +150,7 @@ const dict = {
 
     // Gartic reveal
     'reveal.exactMatch': '🎯 Exact match!',
+    'reveal.celebrate': 'Celebrate!',
     'reveal.storyStep': ({ book, totalBooks, entry, totalEntries }) =>
       `Story ${book} / ${totalBooks} · step ${entry} / ${totalEntries}`,
     'reveal.startedBy': ({ author }) => ` — started by ${author}`,
@@ -162,6 +163,7 @@ const dict = {
     // Draw canvas / replay
     'draw.customColor': 'Custom color',
     'draw.eraser': 'Eraser',
+    'draw.undo': 'Undo',
     'draw.clear': 'Clear',
     'draw.noDrawing': '(no drawing)',
     'draw.replay': '↻ Replay',
@@ -344,6 +346,7 @@ const dict = {
 
     // Gartic reveal
     'reveal.exactMatch': '🎯 Correspondance exacte !',
+    'reveal.celebrate': 'Célébrer !',
     'reveal.storyStep': ({ book, totalBooks, entry, totalEntries }) =>
       `Histoire ${book} / ${totalBooks} · étape ${entry} / ${totalEntries}`,
     'reveal.startedBy': ({ author }) => ` — commencée par ${author}`,
@@ -356,6 +359,7 @@ const dict = {
     // Draw canvas / replay
     'draw.customColor': 'Couleur personnalisée',
     'draw.eraser': 'Gomme',
+    'draw.undo': 'Annuler',
     'draw.clear': 'Effacer',
     'draw.noDrawing': '(aucun dessin)',
     'draw.replay': '↻ Rejouer',

@@ -16,6 +16,16 @@ export default function App() {
   const nameRef = useRef(null); // remembered name for auto-rejoin
   const roleRef = useRef(null);
 
+  // Trap the Android back gesture / button so an accidental edge-swipe (common when drawing
+  // from the left edge of the canvas) can't navigate away and close a QR-opened tab.
+  // Seed a history entry, then re-seed every time a back navigation pops it.
+  useEffect(() => {
+    window.history.pushState(null, '', window.location.href);
+    const onPop = () => window.history.pushState(null, '', window.location.href);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
   useEffect(() => {
     const onState = (s) => setState(s);
     // per-second timer update only patches timeRemaining (full state carries images)

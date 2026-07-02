@@ -19,6 +19,8 @@ body {
   background: radial-gradient(circle at top, var(--bg2), var(--bg));
   color: var(--fg);
   -webkit-tap-highlight-color: transparent;
+  /* stop Chrome/Android edge-swipe from triggering history back/forward navigation */
+  overscroll-behavior: none;
 }
 
 .screen {
@@ -397,7 +399,24 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   width: 38px; height: 38px; border-radius: 10px; background: var(--card); font-size: 1.1rem;
 }
 .draw-tools .tool.sel { background: var(--primary); }
-.draw-tools input[type='range'] { width: 110px; }
+.draw-tools .tool:disabled { opacity: 0.4; cursor: default; }
+/* white icons: inline SVGs with a hardcoded white stroke, centered in the button */
+.draw-tools .tool.icon-white { display: inline-flex; align-items: center; justify-content: center; }
+/* custom range so the fill reaches the very end at max (no native thumb-inset gap) */
+.draw-tools input[type='range'] {
+  -webkit-appearance: none; appearance: none;
+  width: 140px; height: 8px; border-radius: 4px; cursor: pointer;
+  background: linear-gradient(to right, var(--primary) var(--pct, 100%), #d8d8e0 var(--pct, 100%));
+}
+.draw-tools input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 18px; height: 18px; border-radius: 50%; margin-top: -5px;
+  background: #fff; border: 2px solid var(--primary);
+}
+.draw-tools input[type='range']::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--primary);
+}
 .draw-canvas {
   width: 100%;
   max-width: 900px;
@@ -452,6 +471,23 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   pointer-events: none;
   z-index: 60;
 }
+/* manual celebration trigger — bottom-left of the reveal screen */
+.fw-trigger {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--card);
+  font-size: 1.7rem;
+  line-height: 1;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 70;
+  cursor: pointer;
+}
+.fw-trigger:hover { transform: scale(1.08); }
+.fw-trigger:active { transform: scale(0.94); }
 .g-match {
   font-size: clamp(1.4rem, 4vw, 2.4rem);
   font-weight: 800;
