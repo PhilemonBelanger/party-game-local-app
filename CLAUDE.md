@@ -100,7 +100,9 @@ Player set is snapshotted at start (`playerKeys`): mid-game joiners aren't in it
 `{type:'spectator'}` task and excludes them from the gartic roster (they join the next game, no reshuffle).
 Reconnect by name resumes the same slot; `taskFor` includes `done` (already-submitted) so they resume locked.
 Reveal payload includes `seedPrompt` (book's initial prompt); `GarticReveal` shows `Fireworks` + a banner when a
-guess equals it (case-insensitive). `DrawCanvas` has a rainbow swatch wrapping `<input type=color>` for custom colors.
+guess equals it (case-insensitive). `DrawCanvas` has a rainbow swatch wrapping `<input type=color>` for custom colors, plus a 🪣 fill (paint-bucket)
+tool — scanline flood fill with a tolerance to cover anti-aliased stroke edges; when the fill tool is active,
+mousedown floods instead of drawing. Fill/eraser are mutually exclusive.
 Drawing process is recorded as vector ops (`DrawCanvas.getOps()`: `{t:'stroke',erase,color,size,pts}` /
 `{t:'clear'}`, points throttled by distance) — sent alongside the PNG in submit/draft, stored on the draw
 entry (`ops`), and replayed fast-forward (~4s) by `DrawReplay` in the reveal (falls back to the static PNG
@@ -108,8 +110,9 @@ when no ops). Compact (KB of coords, not MBs of snapshots); captures stroke orde
 
 ### Fibbage mode (`backend/fibbage.js`)
 Client→server: `host:setmode`('fibbage'), `fibbage:submit`({promptIndex,text}, cb→{ok}|{ok:false,reason})
-(reason `truth`/`empty`/`stale`/`locked`), `fibbage:draft`({promptIndex,text}), `fibbage:vote`({promptIndex,
-cardId,thumbId|null}), `fibbage:next` (host advance). Server→client: `fibbage:sync` (private, reconnect resume:
+(reason `truth`/`empty`/`stale`/`locked`), `fibbage:draft`({promptIndex,text}), `fibbage:suggestion`({promptIndex},
+cb→{ok,used,max}), `fibbage:vote`({promptIndex,cardId,thumbId}) (both mandatory & must differ), `fibbage:next`
+(host advance). Server→client: `fibbage:sync` (private, reconnect resume:
 {phase,promptIndex,lie,votedCardId,thumbCardId} or {spectator:true}) and `result` (private per-player score
 breakdown at reveal). 10 random prompts/game from the combined `normal`+`final` pool (env `FIBBAGE_PROMPTS`).
 Per prompt phases: `answer → vote → reveal` (then game `podium`). Timers: `FIBBAGE_ANSWER_TIME` (60),
@@ -120,10 +123,17 @@ non-submitters at timeout; skipped if a draft equals the truth). At answer→vot
 identical lies (normalized: trim+collapse+lowercase) into one card, **pads back up to (players+1) cards
 with distinct random `suggestions`** (authorless decoys — votes/thumbs on them score for nobody; this hides
 coalescing/non-submitters from voters), adds the truth, shuffles once → stable `id`s; vote-phase
-`state.cards` exposes only {id,text} (no authors/votes). Self-vote and self-thumb are
-rejected server-side (and hidden client-side by matching the player's own lie text). Scoring (consts, env-
+`state.cards` exposes only {id,text} (no authors/votes). Voting requires BOTH a vote and a thumb on two DIFFERENT cards (thumb is mandatory now); self-vote, self-thumb,
+and voting+thumbing the same card are rejected server-side (own card hidden client-side; the vote/thumb buttons
+disable each other's selected card). The answer input drafts on every keystroke (plus the 2s heartbeat + a final
+draft at time-up) so an unsubmitted textbox is always autosent even if the host advances the instant the timer hits 0. Scoring (consts, env-
 overridable): +150 truth guess, +100 per vote your lie drew (each author of a coalesced card), +50 to the
-most-thumbed lie author(s) (ties all win). Cumulative `totalThumbs` drives the podium "most upvoted" mention.
+most-thumbed lie author(s) (ties all win), +100 to anyone who typed the real answer and got the "pick something
+else" popup (`truthAttempts`, tracked server-side in `submitLie`; reveal `state.truthAttempters` lists their names
+on the host screen + `result.triedTruth` in the player breakdown). Suggestions are capped **per game, not per
+prompt**: `fibbage:suggestion` meters a game-wide allowance (`g.suggestionsUsed`, `FIBBAGE_MAX_SUGGESTIONS`=3,
+survives reconnect via `fibbage:sync`); the text is still picked client-side, the server only grants/denies the
+count. Reveal lowercases all answer text (truth + cards) so casing differences don't read as different answers. Cumulative `totalThumbs` drives the podium "most upvoted" mention.
 `playerKeys` snapshot at start → mid-game joiners spectate, like gartic. Prompt rendering (`FibbagePrompt`):
 `normal` prompts contain `<BLANK>`; `final` prompts have none (blank appended); HTML is stripped server-side
 (`stripHtml` keeps the literal `<BLANK>` token — don't broaden the regex or it eats the blank).
@@ -153,7 +163,7 @@ own i18n `lang` (`useLangPick` in `FibbagePrompt.jsx`). Player lies are free tex
 - Tunables via env: `PORT`, `TIME_LIMIT`, `BASE_POINTS`, `HOST_LAN_IP` (Docker override), `SKIP_FIREWALL`,
   `GARTIC_DRAW_TIME` (100), `GARTIC_GUESS_TIME` (60), `FIBBAGE_ANSWER_TIME` (60), `FIBBAGE_VOTE_TIME` (30),
   `FIBBAGE_PROMPTS` (10), `FIBBAGE_TRUTH_POINTS` (150), `FIBBAGE_VOTE_POINTS` (100), `FIBBAGE_THUMB_POINTS` (50),
-  `FIBBAGE_THUMB_MIN` (2).
+  `FIBBAGE_THUMB_MIN` (2), `FIBBAGE_TRUTH_ATTEMPT_POINTS` (100), `FIBBAGE_MAX_SUGGESTIONS` (3).
 - Keep server authoritative; never trust client for scoring/answer visibility.
 
 ## Gotchas (learned the hard way)

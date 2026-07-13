@@ -28,6 +28,7 @@ const DrawCanvas = forwardRef(function DrawCanvas(_props, ref) {
   const [customColor, setCustomColor] = useState('#ff5da2');
   const [size, setSize] = useState(6);
   const [eraser, setEraser] = useState(false);
+  const [fill, setFill] = useState(false); // paint-bucket flood fill
 
   useEffect(() => {
     const ctx = canvasRef.current.getContext('2d');
@@ -87,8 +88,96 @@ const DrawCanvas = forwardRef(function DrawCanvas(_props, ref) {
     dirty.current = true;
     setCanUndo(undoStack.current.length > 0);
   }
+  // "#rrggbb" -> [r,g,b]
+  function hexToRgb(hex) {
+    const h = hex.replace('#', '');
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  // Scanline flood fill from (sx,sy) with the current paint color. Tolerance covers
+  // the anti-aliased edges of strokes so fills don't leave a halo.
+  function floodFill(sx, sy) {
+    sx = Math.round(sx);
+    sy = Math.round(sy);
+    if (sx < 0 || sy < 0 || sx >= W || sy >= H) return;
+    const c = ctx();
+    const img = c.getImageData(0, 0, W, H);
+    const d = img.data;
+    const [fr, fg, fb] = hexToRgb(paint());
+    const at = (x, y) => (y * W + x) * 4;
+    const s = at(sx, sy);
+    const tr = d[s], tg = d[s + 1], tb = d[s + 2], ta = d[s + 3];
+    const tol = 48;
+    // no-op if the target is already (near) the fill color — also avoids a re-paint loop
+    if (Math.abs(tr - fr) <= tol && Math.abs(tg - fg) <= tol && Math.abs(tb - fb) <= tol && ta === 255) return;
+    // Collect the filled region into a mask first, then dilate it a couple of pixels
+    // before painting. The pen strokes are anti-aliased, so their edge pixels don't
+    // match the target and the raw fill stops one pixel short — leaving a faint halo.
+    // Growing the mask into that boundary swallows the halo.
+    const mask = new Uint8Array(W * H);
+    // "inside" = colour matches the seed AND not yet visited. The mask doubles as the
+    // visited set, so the scan terminates (we don't mutate the pixel data during fill).
+    const inside = (x, y) => {
+      const p = y * W + x;
+      if (mask[p]) return false;
+      const i = p * 4;
+      return Math.abs(d[i] - tr) <= tol && Math.abs(d[i + 1] - tg) <= tol &&
+        Math.abs(d[i + 2] - tb) <= tol && Math.abs(d[i + 3] - ta) <= tol;
+    };
+    const stack = [[sx, sy]];
+    while (stack.length) {
+      const [px, y] = stack.pop();
+      let x = px;
+      while (x >= 0 && inside(x, y)) x--;
+      x++;
+      let spanUp = false, spanDown = false;
+      while (x < W && inside(x, y)) {
+        mask[y * W + x] = 1;
+        if (y > 0) {
+          const up = inside(x, y - 1);
+          if (up && !spanUp) { stack.push([x, y - 1]); spanUp = true; }
+          else if (!up) spanUp = false;
+        }
+        if (y < H - 1) {
+          const dn = inside(x, y + 1);
+          if (dn && !spanDown) { stack.push([x, y + 1]); spanDown = true; }
+          else if (!dn) spanDown = false;
+        }
+        x++;
+      }
+    }
+    // dilate the mask by EXPAND pixels (4-neighbour grow per pass)
+    const EXPAND = 2;
+    let cur = mask;
+    for (let pass = 0; pass < EXPAND; pass++) {
+      const next = cur.slice();
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const p = y * W + x;
+          if (cur[p]) continue;
+          if ((x > 0 && cur[p - 1]) || (x < W - 1 && cur[p + 1]) ||
+              (y > 0 && cur[p - W]) || (y < H - 1 && cur[p + W])) {
+            next[p] = 1;
+          }
+        }
+      }
+      cur = next;
+    }
+    for (let p = 0; p < W * H; p++) {
+      if (!cur[p]) continue;
+      const i = p * 4;
+      d[i] = fr; d[i + 1] = fg; d[i + 2] = fb; d[i + 3] = 255;
+    }
+    c.putImageData(img, 0, 0);
+    dirty.current = true;
+  }
   function down(e) {
     e.preventDefault();
+    if (fill) {
+      pushUndo();
+      const p = pos(e);
+      floodFill(p.x, p.y);
+      return;
+    }
     drawing.current = true;
     pushUndo();
     const p = pos(e);
@@ -156,7 +245,18 @@ const DrawCanvas = forwardRef(function DrawCanvas(_props, ref) {
             }}
           />
         </label>
-        <button className={`tool ${eraser ? 'sel' : ''}`} title={t('draw.eraser')} onClick={() => setEraser((e) => !e)}>
+        <button
+          className={`tool ${fill ? 'sel' : ''}`}
+          title={t('draw.fill')}
+          onClick={() => { setFill((f) => !f); setEraser(false); }}
+        >
+          🪣
+        </button>
+        <button
+          className={`tool ${eraser ? 'sel' : ''}`}
+          title={t('draw.eraser')}
+          onClick={() => { setEraser((e) => !e); setFill(false); }}
+        >
           🧽
         </button>
         <input

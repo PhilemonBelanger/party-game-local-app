@@ -504,6 +504,15 @@ io.on('connection', (socket) => {
     if (mode !== 'fibbage' || !key || !(payload && typeof payload === 'object')) return;
     fibbage.draftLie(key, payload.promptIndex, payload.text);
   });
+  socket.on('fibbage:suggestion', (payload, cb) => {
+    const key = socketToKey.get(socket.id);
+    if (mode !== 'fibbage' || !key) {
+      if (typeof cb === 'function') cb({ ok: false });
+      return;
+    }
+    const res = fibbage.useSuggestion(key);
+    if (typeof cb === 'function') cb(res);
+  });
   socket.on('fibbage:vote', (payload) => {
     const key = socketToKey.get(socket.id);
     if (mode !== 'fibbage' || !key || !(payload && typeof payload === 'object')) return;

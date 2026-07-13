@@ -10,7 +10,7 @@ export default function FibbageHostView({ state }) {
   const pick = useLangPick();
   if (!state) return <div className="screen center">{t('common.connecting')}</div>;
   const {
-    phase, players = [], prompt, cards = [], truth, truthId,
+    phase, players = [], prompt, cards = [], truth, truthId, truthAttempters = [],
     promptIndex, totalPrompts, submittedCount, votedCount, totalInGame,
     timeRemaining, timeLimit, timeUp, rankings, topThumbs,
   } = state;
@@ -123,6 +123,9 @@ export default function FibbageHostView({ state }) {
       <div className="screen host game">
         {header}
         <FibbagePrompt prompt={prompt} fill={pick(truth, state.truthFR)} className="big" />
+        {truthAttempters.length > 0 && (
+          <div className="fb-truth-attempt">{t('fibbage.triedTruthReveal', { names: truthAttempters.join(', ') })}</div>
+        )}
         <div className="fb-cards host reveal">
           {cards.map((c) => (
             <div key={c.id} className={`fb-card ${c.isTruth ? 'truth' : ''}`}>

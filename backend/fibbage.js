@@ -13,6 +13,8 @@ const PTS_TRUTH = parseInt(process.env.FIBBAGE_TRUTH_POINTS || '150', 10); // gu
 const PTS_VOTE = parseInt(process.env.FIBBAGE_VOTE_POINTS || '100', 10); // per vote your lie fooled
 const PTS_THUMB = parseInt(process.env.FIBBAGE_THUMB_POINTS || '50', 10); // most-thumbed lie bonus
 const THUMB_MIN = parseInt(process.env.FIBBAGE_THUMB_MIN || '2', 10); // min thumbs to earn the bonus
+const PTS_TRUTH_ATTEMPT = parseInt(process.env.FIBBAGE_TRUTH_ATTEMPT_POINTS || '100', 10); // typed the real answer
+const MAX_SUGGESTIONS = parseInt(process.env.FIBBAGE_MAX_SUGGESTIONS || '3', 10); // suggestions per player per GAME
 
 function shuffle(arr) {
   const a = [...arr];
@@ -77,6 +79,8 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
       playerKeys,
       scores: Object.fromEntries(playerKeys.map((k) => [k, 0])),
       totalThumbs: Object.fromEntries(playerKeys.map((k) => [k, 0])),
+      suggestionsUsed: Object.fromEntries(playerKeys.map((k) => [k, 0])), // game-wide, capped at MAX_SUGGESTIONS
+      truthAttempts: {}, // key -> true if they tried to submit the real answer (this prompt)
       lies: {}, // key -> raw lie text (this prompt)
       drafts: {}, // key -> latest in-progress text
       cards: [], // [{ id, text, authorKeys:[], isTruth }] (built at answer→vote)
@@ -105,6 +109,7 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
       g.cards = [];
       g.votes = {};
       g.thumbs = {};
+      g.truthAttempts = {}; // per-prompt; suggestionsUsed persists across the game
     }
     broadcast();
     if (phase === 'reveal') return; // reveal is untimed; host advances
@@ -128,7 +133,10 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
     if (g.playerKeys.indexOf(key) < 0 || g.timeUp) return { ok: false, reason: 'locked' };
     const clean = String(text || '').trim();
     if (!clean) return { ok: false, reason: 'empty' };
-    if (curPrompt().truthSet.has(norm(clean))) return { ok: false, reason: 'truth' };
+    if (curPrompt().truthSet.has(norm(clean))) {
+      g.truthAttempts[key] = true; // earns a bonus at reveal; still must enter a lie
+      return { ok: false, reason: 'truth' };
+    }
     g.lies[key] = clean;
     delete g.drafts[key];
     broadcast();
@@ -139,8 +147,18 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
     if (!g || g.phase !== 'answer' || (promptIndex != null && promptIndex !== g.promptIndex)) return;
     if (g.playerKeys.indexOf(key) < 0 || g.lies[key] != null) return;
     const clean = String(text || '').trim();
-    if (!clean || curPrompt().truthSet.has(norm(clean))) return; // never let a draft become the truth
+    if (!clean) { delete g.drafts[key]; return; } // box emptied → drop stale draft (keeps case-5 empty = no card)
+    if (curPrompt().truthSet.has(norm(clean))) return; // never let a draft become the truth
     g.drafts[key] = clean;
+  }
+
+  // Server-authoritative suggestion allowance: MAX_SUGGESTIONS for the whole game (survives
+  // reconnect). Text selection stays client-side; here we only meter the count.
+  function useSuggestion(key) {
+    if (!g || g.phase !== 'answer' || g.playerKeys.indexOf(key) < 0) return { ok: false };
+    if ((g.suggestionsUsed[key] || 0) >= MAX_SUGGESTIONS) return { ok: false, used: g.suggestionsUsed[key], max: MAX_SUGGESTIONS };
+    g.suggestionsUsed[key] = (g.suggestionsUsed[key] || 0) + 1;
+    return { ok: true, used: g.suggestionsUsed[key], max: MAX_SUGGESTIONS };
   }
 
   // ---- vote phase ----
@@ -156,6 +174,10 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
       if (!byNorm.has(n)) byNorm.set(n, { text: lie, authorKeys: [] });
       byNorm.get(n).authorKeys.push(key);
     }
+    // Any non-empty answer scores for its author — whether typed or from the suggestion
+    // button, submitted or auto-filled from a draft at time-up. Only a player who leaves
+    // the box EMPTY at time-up has no lie here at all: they get no card (a filler decoy
+    // pads the count) and can still vote, but earn nothing from votes/thumbs.
     const lieCards = [...byNorm.values()].map((c) => ({ text: c.text, textFR: c.text, authorKeys: c.authorKeys, isTruth: false }));
     const truthCard = { text: curPrompt().answer, textFR: curPrompt().answerFR, authorKeys: [], isTruth: true };
     // Always show (players + 1) cards: coalesced duplicates / non-submitters shrink the
@@ -183,11 +205,13 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
     if (g.playerKeys.indexOf(key) < 0 || g.timeUp || g.votes[key] != null) return;
     const card = g.cards.find((c) => c.id === cardId);
     if (!card || card.authorKeys.includes(key)) return; // must vote, can't pick own
+    // thumb is now mandatory and must be a DIFFERENT, non-own card — reject the whole
+    // submission otherwise (the client enforces this too; this guards direct emits)
+    if (thumbId == null || thumbId === cardId) return;
+    const tcard = g.cards.find((c) => c.id === thumbId);
+    if (!tcard || tcard.authorKeys.includes(key)) return;
     g.votes[key] = cardId;
-    if (thumbId != null) {
-      const tcard = g.cards.find((c) => c.id === thumbId);
-      if (tcard && !tcard.authorKeys.includes(key)) g.thumbs[key] = thumbId; // can't thumb own
-    }
+    g.thumbs[key] = thumbId;
     broadcast();
   }
 
@@ -201,7 +225,14 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
     const truthCard = g.cards.find((c) => c.isTruth);
 
     // +150 to truth-guessers
-    const gained = Object.fromEntries(g.playerKeys.map((k) => [k, { guessedRight: false, votesOnYou: 0, thumbBonus: false, total: 0 }]));
+    const gained = Object.fromEntries(g.playerKeys.map((k) => [k, { guessedRight: false, votesOnYou: 0, thumbBonus: false, triedTruth: false, total: 0 }]));
+    // +100 to anyone who typed the real answer (got the "pick something else" popup)
+    for (const key of g.playerKeys) {
+      if (g.truthAttempts[key] && gained[key]) {
+        gained[key].triedTruth = true;
+        gained[key].total += PTS_TRUTH_ATTEMPT;
+      }
+    }
     for (const [key, cid] of Object.entries(g.votes)) {
       if (truthCard && cid === truthCard.id && gained[key]) {
         gained[key].guessedRight = true;
@@ -250,6 +281,7 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
           guessedRight: gained[key].guessedRight,
           votesOnYou: gained[key].votesOnYou,
           thumbBonus: gained[key].thumbBonus,
+          triedTruth: gained[key].triedTruth,
           votedFor: g.votes[key] ?? null,
           truthId: truthCard ? truthCard.id : null,
           newScore: g.scores[key],
@@ -280,6 +312,11 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
       }
       buildCards();
       beginPhase('vote');
+      // privately tell each player which card is theirs, so the client can hide/disable it.
+      // Needed for players whose answer was auto-filled from a draft (they never got a submit
+      // callback, so the client otherwise doesn't know its own card → lets them vote it →
+      // server rejects the vote silently → host stuck waiting).
+      for (const key of g.playerKeys) emitMyCard(key);
     } else if (g.phase === 'vote') {
       if (!allVoted() && !g.timeUp) return;
       clearInterval(g.timer);
@@ -297,6 +334,15 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
     }
   }
 
+  // id of the card this player authored (coalesced cards may hold several authors), or null
+  const ownCardIdOf = (key) => g.cards.find((c) => c.authorKeys.includes(key))?.id ?? null;
+
+  function emitMyCard(key) {
+    const p = getPlayers().get(key);
+    if (!p?.connected || !p.socketId) return;
+    io.to(p.socketId).emit('fibbage:mycard', { promptIndex: g.promptIndex, cardId: ownCardIdOf(key) });
+  }
+
   // resume a (re)connecting player into their current locked/unlocked state
   function syncTo(key) {
     if (!g || !g.playerKeys.includes(key)) return;
@@ -306,8 +352,13 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
       phase: g.phase,
       promptIndex: g.promptIndex,
       lie: g.lies[key] ?? null,
+      // own card id during vote/reveal (cards exist then) so a reconnecting player still
+      // can't vote their own card even if the text-match heuristic would miss
+      ownCardId: g.cards.length ? ownCardIdOf(key) : null,
       votedCardId: g.votes[key] ?? null,
       thumbCardId: g.thumbs[key] ?? null,
+      suggestionsUsed: g.suggestionsUsed[key] ?? 0,
+      maxSuggestions: MAX_SUGGESTIONS,
     });
   }
 
@@ -363,18 +414,22 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
       out.votedCount = conn.filter((k) => g.votes[k] != null).length;
       out.totalInGame = conn.length;
     } else if (g.phase === 'reveal') {
-      out.truth = p.answer;
-      out.truthFR = p.answerFR;
+      // lowercase answers at reveal so casing differences don't read as different answers
+      const low = (s) => String(s || '').toLowerCase();
+      out.truth = low(p.answer);
+      out.truthFR = low(p.answerFR);
       const truthCard = g.cards.find((c) => c.isTruth);
       out.truthId = truthCard ? truthCard.id : null;
+      // names of players who typed the real answer (each earned the +100 attempt bonus)
+      out.truthAttempters = g.playerKeys.filter((k) => g.truthAttempts[k]).map(nameOf);
       const voters = {}; // cardId -> [names]
       for (const [key, cid] of Object.entries(g.votes)) {
         (voters[cid] = voters[cid] || []).push(nameOf(key));
       }
       out.cards = g.cards.map((c) => ({
         id: c.id,
-        text: c.text,
-        textFR: c.textFR,
+        text: low(c.text),
+        textFR: low(c.textFR),
         isTruth: c.isTruth,
         authorNames: c.authorKeys.map(nameOf),
         voterNames: voters[c.id] || [],
@@ -391,7 +446,7 @@ export function createFibbage({ io, getPlayers, broadcast, answerTime = 60, vote
   const scoreOf = (key) => (g ? g.scores[key] || 0 : 0);
 
   return {
-    start, submitLie, draftLie, vote, next, syncTo, reset, buildState,
+    start, submitLie, draftLie, useSuggestion, vote, next, syncTo, reset, buildState,
     isSubmitted, isInGame, getPlayerKeys, scoreOf, active: () => !!g,
   };
 }

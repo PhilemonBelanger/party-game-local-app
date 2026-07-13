@@ -15,12 +15,14 @@ export default function FibbagePlayerView({ state, me }) {
   const [text, setText] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [truthWarn, setTruthWarn] = useState(false);
-  const [suggestionUsed, setSuggestionUsed] = useState(false);
+  const [sugUsed, setSugUsed] = useState(0); // game-wide suggestion count (persists across prompts)
+  const [sugMax, setSugMax] = useState(3);
   const [myLie, setMyLie] = useState(''); // my submitted lie text (to hide my own card)
   // vote phase
   const [selectedCard, setSelectedCard] = useState(null);
   const [thumbCard, setThumbCard] = useState(null);
   const [voted, setVoted] = useState(false);
+  const [ownCardId, setOwnCardId] = useState(null); // my own card (server-authoritative)
   // shared
   const [lockedOut, setLockedOut] = useState(false); // timer hit 0, input frozen
   const [spectator, setSpectator] = useState(false);
@@ -35,14 +37,21 @@ export default function FibbagePlayerView({ state, me }) {
     setText('');
     setSubmitted(false);
     setTruthWarn(false);
-    setSuggestionUsed(false);
-    setMyLie('');
+    setMyLie(''); // sugUsed is game-wide — not reset per prompt
     setSelectedCard(null);
     setThumbCard(null);
     setVoted(false);
+    setOwnCardId(null);
     setLockedOut(false);
     setResult(null);
   }, [promptIndex]);
+
+  // Entering a fresh phase clears the time-up lock. lockedOut is shared by the answer and
+  // vote phases (same promptIndex), so without this a player who ran out of time answering
+  // would stay stuck on the "time's up" screen through the whole voting phase.
+  useEffect(() => {
+    setLockedOut(false);
+  }, [state?.phase]);
 
   // private events: per-player result + reconnect resume
   useEffect(() => {
@@ -63,12 +72,20 @@ export default function FibbagePlayerView({ state, me }) {
         setVoted(true);
       }
       if (s?.thumbCardId != null) setThumbCard(s.thumbCardId);
+      if (s?.ownCardId != null) setOwnCardId(s.ownCardId);
+      if (s?.suggestionsUsed != null) setSugUsed(s.suggestionsUsed);
+      if (s?.maxSuggestions != null) setSugMax(s.maxSuggestions);
     };
+    // server tells us which card is ours at the start of the vote phase (works even when our
+    // answer was auto-filled from a draft, so we never had a submit callback with our lie)
+    const onMyCard = (m) => setOwnCardId(m?.cardId ?? null);
     socket.on('result', onResult);
     socket.on('fibbage:sync', onSync);
+    socket.on('fibbage:mycard', onMyCard);
     return () => {
       socket.off('result', onResult);
       socket.off('fibbage:sync', onSync);
+      socket.off('fibbage:mycard', onMyCard);
     };
   }, []);
 
@@ -146,9 +163,13 @@ export default function FibbagePlayerView({ state, me }) {
   function getSuggestion() {
     // localized pool: FR list when the player's UI is French (fall back to EN)
     const list = suggestionsFR.length === suggestions.length && suggestionsFR.length ? pick(suggestions, suggestionsFR) : suggestions;
-    if (suggestionUsed || list.length === 0) return;
-    setText(list[Math.floor(Math.random() * list.length)]);
-    setSuggestionUsed(true);
+    if (sugUsed >= sugMax || list.length === 0) return;
+    // server meters the game-wide allowance; only fill the box if it grants one
+    socket.emit('fibbage:suggestion', { promptIndex }, (res) => {
+      if (res?.used != null) setSugUsed(res.used);
+      if (res?.max != null) setSugMax(res.max);
+      if (res?.ok) setText(list[Math.floor(Math.random() * list.length)]);
+    });
   }
 
   if (phase === 'answer') {
@@ -175,12 +196,19 @@ export default function FibbagePlayerView({ state, me }) {
               maxLength={120}
               autoFocus
               placeholder={t('fibbage.liePlaceholder')}
-              onChange={(e) => { setText(e.target.value); setTruthWarn(false); }}
+              onChange={(e) => {
+                setText(e.target.value);
+                setTruthWarn(false);
+                // draft every keystroke so an unsubmitted textbox is autosent on time-up
+                // even if the host advances the instant the timer hits 0
+                socket.emit('fibbage:draft', { promptIndex, text: e.target.value });
+              }}
               onKeyDown={(e) => e.key === 'Enter' && submitLie()}
             />
-            <button className="ghost" disabled={suggestionUsed || suggestions.length === 0} onClick={getSuggestion}>
+            <button className="ghost" disabled={sugUsed >= sugMax || suggestions.length === 0} onClick={getSuggestion}>
               {t('fibbage.getSuggestion')}
             </button>
+            <p className="fb-sug-count">{t('fibbage.suggestionsLeft', { used: sugUsed, max: sugMax })}</p>
             <button className="primary big" disabled={!text.trim()} onClick={submitLie}>
               {t('common.submit')}
             </button>
@@ -192,9 +220,12 @@ export default function FibbagePlayerView({ state, me }) {
 
   // ---- vote phase ----
   if (phase === 'vote') {
-    const myCardId = cards.find((c) => norm(c.text) === norm(myLie))?.id ?? null;
+    // prefer the server-authoritative own-card id; fall back to matching my submitted lie text
+    const myCardId = ownCardId ?? (myLie ? cards.find((c) => norm(c.text) === norm(myLie))?.id ?? null : null);
+    // must pick a truth AND thumb a different card before locking in
+    const canLock = selectedCard != null && thumbCard != null && selectedCard !== thumbCard;
     function lockVote() {
-      if (selectedCard == null) return;
+      if (!canLock) return;
       socket.emit('fibbage:vote', { promptIndex, cardId: selectedCard, thumbId: thumbCard });
       setVoted(true);
     }
@@ -222,7 +253,7 @@ export default function FibbagePlayerView({ state, me }) {
                   <div key={c.id} className={`fb-card-row ${selectedCard === c.id ? 'sel' : ''} ${own ? 'own' : ''}`}>
                     <button
                       className="fb-card-pick"
-                      disabled={own}
+                      disabled={own || thumbCard === c.id}
                       onClick={() => setSelectedCard(c.id)}
                     >
                       {pick(c.text, c.textFR)}
@@ -230,7 +261,7 @@ export default function FibbagePlayerView({ state, me }) {
                     </button>
                     <button
                       className={`fb-thumb ${thumbCard === c.id ? 'on' : ''}`}
-                      disabled={own}
+                      disabled={own || selectedCard === c.id}
                       onClick={() => setThumbCard(thumbCard === c.id ? null : c.id)}
                       title={t('fibbage.thumbHint')}
                     >
@@ -240,9 +271,10 @@ export default function FibbagePlayerView({ state, me }) {
                 );
               })}
             </div>
-            <button className="primary big" disabled={selectedCard == null} onClick={lockVote}>
+            <button className="primary big" disabled={!canLock} onClick={lockVote}>
               {t('fibbage.lockIn')}
             </button>
+            {!canLock && <p className="fb-sug-count">{t('fibbage.pickBothHint')}</p>}
           </div>
         )}
       </div>
@@ -261,6 +293,7 @@ export default function FibbagePlayerView({ state, me }) {
         <h2>{t('player.answerIs')} <b>{pick(state.truth, state.truthFR)}</b></h2>
         {result && (
           <ul className="fb-breakdown">
+            {result.triedTruth && <li>{t('fibbage.bdTriedTruth')}</li>}
             {result.guessedRight && <li>{t('fibbage.bdGuessed')}</li>}
             {result.votesOnYou > 0 && <li>{t('fibbage.bdFooled', { n: result.votesOnYou })}</li>}
             {result.thumbBonus && <li>{t('fibbage.bdThumbs')}</li>}
