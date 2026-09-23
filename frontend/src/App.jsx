@@ -9,6 +9,13 @@ import GarticPlayerView from './views/GarticPlayerView.jsx';
 import FibbageHostView from './views/FibbageHostView.jsx';
 import FibbagePlayerView from './views/FibbagePlayerView.jsx';
 
+// state.mode → the host (TV) and player (phone) screen for that mode
+const VIEWS = {
+  trivia: { host: HostView, player: PlayerView },
+  gartic: { host: GarticHostView, player: GarticPlayerView },
+  fibbage: { host: FibbageHostView, player: FibbagePlayerView },
+};
+
 export default function App() {
   const [role, setRole] = useState(null); // null | 'host' | 'player'
   const [state, setState] = useState(null);
@@ -35,13 +42,22 @@ export default function App() {
       if (roleRef.current === 'host') socket.emit('host:join');
       else if (nameRef.current) socket.emit('player:join', nameRef.current, ({ id }) => setMe(id));
     };
+    // the same name joined from another device → this one lost the slot; back to Home
+    const onReplaced = () => {
+      nameRef.current = null;
+      roleRef.current = null;
+      setMe(null);
+      setRole(null);
+    };
     socket.on('state', onState);
     socket.on('tick', onTick);
     socket.on('connect', onConnect);
+    socket.on('player:replaced', onReplaced);
     return () => {
       socket.off('state', onState);
       socket.off('tick', onTick);
       socket.off('connect', onConnect);
+      socket.off('player:replaced', onReplaced);
     };
   }, []);
 
@@ -59,9 +75,6 @@ export default function App() {
     setRole('player');
   }
 
-  const gartic = state?.mode === 'gartic';
-  const fibbage = state?.mode === 'fibbage';
-
   if (!role) {
     return (
       <Home
@@ -74,6 +87,6 @@ export default function App() {
     );
   }
   if (role === 'creator') return <CreatorView onBack={() => setRole(null)} />;
-  if (role === 'host') return gartic ? <GarticHostView state={state} /> : fibbage ? <FibbageHostView state={state} /> : <HostView state={state} />;
-  return gartic ? <GarticPlayerView state={state} /> : fibbage ? <FibbagePlayerView state={state} me={me} /> : <PlayerView state={state} me={me} />;
+  const View = (VIEWS[state?.mode] || VIEWS.trivia)[role];
+  return <View state={state} me={me} />;
 }

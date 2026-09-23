@@ -3,61 +3,50 @@ import { socket } from '../socket';
 import DrawCanvas from '../components/DrawCanvas.jsx';
 import TimerBar from '../components/TimerBar.jsx';
 import GarticReveal from '../components/GarticReveal.jsx';
+import { Notice, Spectating } from '../components/Screens.jsx';
+import { useKeyedState, usePhaseInput } from '../hooks.js';
 import { useT } from '../i18n.jsx';
 
 export default function GarticPlayerView({ state }) {
   const t = useT();
-  const [task, setTask] = useState(null); // { round, type, prev, timeLimit }
-  const [text, setText] = useState('');
-  const [submitted, setSubmitted] = useState(false);
-  const [lockedOut, setLockedOut] = useState(false); // timer hit 0 — input frozen
+  const [task, setTask] = useState(null); // { gameId, step, round, type, prev, timeLimit, done } | { type:'spectator', gameId }
+  const step = task?.step ?? null;
+  const [text, setText] = useKeyedState(step, '');
   const canvasRef = useRef(null);
   const textRef = useRef('');
   textRef.current = text;
 
-  const curContent = () => (task?.type === 'draw' ? canvasRef.current?.getDataURL() ?? null : textRef.current);
-  const curFrames = () => (task?.type === 'draw' ? canvasRef.current?.getFrames?.() ?? null : null);
+  const isDraw = task?.type === 'draw';
+  const payload = (withFrames) => ({
+    gameId: task?.gameId,
+    round: task?.round,
+    content: isDraw ? canvasRef.current?.getDataURL() ?? null : textRef.current,
+    // frames are heavy — only on submit / the final time-up draft, not every heartbeat
+    ...(isDraw && withFrames ? { frames: canvasRef.current?.getFrames?.() ?? null } : {}),
+  });
 
+  const spectatingThisGame = task?.type === 'spectator' && task.gameId === state?.gameId;
+  const input = usePhaseInput({
+    step,
+    active: state?.phase === 'round' && !!task && task.type !== 'spectator' && task.step === state?.step,
+    timeUp: state?.timeUp,
+    draft: (final) => socket.emit('gartic:draft', payload(final)),
+  });
+
+  const markSubmitted = input.markSubmitted;
   useEffect(() => {
-    const onTask = (t) => {
-      setTask(t);
-      setText('');
-      setSubmitted(!!t.done); // reconnect after submitting → resume locked
-      setLockedOut(false);
+    const onTask = (tk) => {
+      setTask(tk);
+      if (tk.done) markSubmitted(tk.step); // reconnect after submitting → resume locked
     };
     socket.on('gartic:task', onTask);
     return () => socket.off('gartic:task', onTask);
-  }, []);
-
-  // Heartbeat: every 2s send the current canvas/text as a draft. The server uses the
-  // latest draft if the round advances before a formal submit, so in-progress work is
-  // never lost — no submit race. Stops once submitted or locked out (canvas unmounts).
-  useEffect(() => {
-    if (!task || submitted || lockedOut || task.type === 'spectator') return;
-    // heartbeat carries only the image (frames are heavy — sent on submit / timeout)
-    const id = setInterval(() => socket.emit('gartic:draft', { round: task.round, content: curContent() }), 2000);
-    return () => clearInterval(id);
-  }, [task, submitted, lockedOut]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const timeUp = state?.timeUp;
-  // When time runs out: capture a final draft WHILE the canvas is still mounted, then lock.
-  useEffect(() => {
-    if (state?.phase !== 'round' || !timeUp || submitted || lockedOut || !task || task.type === 'spectator') return;
-    socket.emit('gartic:draft', { round: task.round, content: curContent(), frames: curFrames() });
-    setLockedOut(true);
-  }, [timeUp]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [markSubmitted]);
 
   if (!state) return <div className="screen center">{t('common.connecting')}</div>;
   const { phase, timeRemaining, timeLimit, reveal } = state;
 
-  if (phase === 'lobby') {
-    return (
-      <div className="screen player center">
-        <h2>{t('gartic.youreIn')}</h2>
-        <p className="hint">{t('gartic.waitStart')}</p>
-      </div>
-    );
-  }
+  if (phase === 'lobby') return <Notice title={t('gartic.youreIn')} hint={t('gartic.waitStart')} />;
 
   if (phase === 'reveal') {
     return (
@@ -69,47 +58,32 @@ export default function GarticPlayerView({ state }) {
   }
 
   // round phase
-  if (!task) {
-    return (
-      <div className="screen player center">
-        <p className="hint">{t('gartic.gettingTask')}</p>
-      </div>
-    );
-  }
-
-  if (task.type === 'spectator') {
-    return (
-      <div className="screen player center">
-        <h2>{t('gartic.spectating')}</h2>
-        <p className="hint">{t('gartic.spectatingHint')}</p>
-      </div>
-    );
-  }
+  if (spectatingThisGame) return <Spectating />;
+  if (!task || task.step !== state.step) return <Notice hint={t('gartic.gettingTask')} />;
 
   function submitText() {
     if (text.trim() === '') return;
-    socket.emit('gartic:submit', { round: task.round, content: text.trim() });
-    setSubmitted(true);
+    socket.emit('gartic:submit', { ...payload(false), content: text.trim() });
+    markSubmitted(step);
   }
   function submitDrawing() {
-    socket.emit('gartic:submit', { round: task.round, content: canvasRef.current?.getDataURL() || null, frames: curFrames() });
-    setSubmitted(true);
+    socket.emit('gartic:submit', payload(true));
+    markSubmitted(step);
+  }
+  // draft every keystroke (like fibbage) so text isn't lost if the host advances at 0
+  function onText(e) {
+    setText(e.target.value);
+    socket.emit('gartic:draft', { gameId: task.gameId, round: task.round, content: e.target.value });
   }
 
   return (
     <div className="screen player gartic-play">
       <TimerBar remaining={timeRemaining} limit={timeLimit} />
 
-      {submitted ? (
-        <div className="center grow">
-          <h2>{t('gartic.lockedIn')}</h2>
-          <p className="hint">{t('gartic.waitOthers')}</p>
-        </div>
-      ) : lockedOut ? (
-        <div className="center grow">
-          <h2>{t('player.timesUp')}</h2>
-          <p className="hint">{t('player.waitReveal')}</p>
-        </div>
+      {input.submitted ? (
+        <Notice grow title={t('gartic.lockedIn')} hint={t('gartic.waitOthers')} />
+      ) : input.lockedOut ? (
+        <Notice grow title={t('player.timesUp')} hint={t('player.waitReveal')} />
       ) : task.type === 'prompt' ? (
         <div className="g-task">
           <h2>{t('gartic.writeFun')}</h2>
@@ -118,7 +92,7 @@ export default function GarticPlayerView({ state }) {
             maxLength={120}
             autoFocus
             placeholder={t('gartic.promptPlaceholder')}
-            onChange={(e) => setText(e.target.value)}
+            onChange={onText}
             onKeyDown={(e) => e.key === 'Enter' && submitText()}
           />
           <button className="primary big" disabled={!text.trim()} onClick={submitText}>
@@ -140,7 +114,7 @@ export default function GarticPlayerView({ state }) {
             maxLength={120}
             autoFocus
             placeholder={t('gartic.yourGuess')}
-            onChange={(e) => setText(e.target.value)}
+            onChange={onText}
             onKeyDown={(e) => e.key === 'Enter' && submitText()}
           />
           <button className="primary big" disabled={!text.trim()} onClick={submitText}>

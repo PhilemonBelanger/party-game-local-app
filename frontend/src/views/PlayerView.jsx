@@ -1,27 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { socket } from '../socket';
 import TimerBar from '../components/TimerBar.jsx';
+import { Notice, PlayerFinal } from '../components/Screens.jsx';
+import { useKeyedState } from '../hooks.js';
 import { useT } from '../i18n.jsx';
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
 export default function PlayerView({ state, me }) {
   const t = useT();
-  const [result, setResult] = useState(null); // {correct, gained, ...}
-  const [guess, setGuess] = useState(''); // numeric-question entry
+  // result + numeric entry belong to one question; they reset when the question changes
+  const [q, setQ] = useKeyedState(`${state?.gameId}:${state?.questionIndex}`, { result: null, guess: '' });
+  const { result, guess } = q;
+  const setGuess = (v) => setQ({ guess: v });
 
   useEffect(() => {
-    socket.on('result', setResult);
-    return () => socket.off('result', setResult);
-  }, []);
-
-  // clear last result + entry when a new question starts
-  useEffect(() => {
-    if (state?.phase === 'question') {
-      setResult(null);
-      setGuess('');
-    }
-  }, [state?.questionIndex, state?.phase]);
+    const onResult = (r) => setQ({ result: r });
+    socket.on('result', onResult);
+    return () => socket.off('result', onResult);
+  }, [setQ]);
 
   if (!state) return <div className="screen center">{t('common.connecting')}</div>;
 
@@ -29,14 +26,7 @@ export default function PlayerView({ state, me }) {
   const myPlayer = players.find((p) => p.id === me);
   const myScore = myPlayer?.score ?? 0;
 
-  if (phase === 'lobby') {
-    return (
-      <div className="screen player center">
-        <h2>{t('player.youreIn', { name: myPlayer ? myPlayer.name : '' })}</h2>
-        <p className="hint">{t('player.waitStart')}</p>
-      </div>
-    );
-  }
+  if (phase === 'lobby') return <Notice title={t('player.youreIn', { name: myPlayer ? myPlayer.name : '' })} hint={t('player.waitStart')} />;
 
   if (phase === 'section') {
     return (
@@ -65,15 +55,9 @@ export default function PlayerView({ state, me }) {
         {question.image && <img className="question-img" src={question.image} alt="" />}
 
         {answered ? (
-          <div className="center grow">
-            <h2>{t('player.answerLocked')}</h2>
-            <p className="hint">{t('player.waitReveal')}</p>
-          </div>
+          <Notice grow title={t('player.answerLocked')} hint={t('player.waitReveal')} />
         ) : timeUp ? (
-          <div className="center grow">
-            <h2>{t('player.timesUp')}</h2>
-            <p className="hint">{t('player.waitRevealAnswer')}</p>
-          </div>
+          <Notice grow title={t('player.timesUp')} hint={t('player.waitRevealAnswer')} />
         ) : question.type === 'number' ? (
           <form
             className="number-entry"
@@ -159,17 +143,7 @@ export default function PlayerView({ state, me }) {
     );
   }
 
-  if (phase === 'podium') {
-    const mine = rankings.find((p) => p.id === me);
-    const tied = mine && rankings.filter((p) => p.rank === mine.rank).length > 1;
-    return (
-      <div className="screen player center">
-        <h1>{t('player.gameOver')}</h1>
-        {mine && <h2>{tied ? t('player.tiedFor', { rank: mine.rank }) : t('player.youFinished', { rank: mine.rank })}</h2>}
-        <p className="score-line">{t('player.finalScore')} <b>{myScore}</b></p>
-      </div>
-    );
-  }
+  if (phase === 'podium') return <PlayerFinal rankings={rankings} me={me} />;
 
   return null;
 }

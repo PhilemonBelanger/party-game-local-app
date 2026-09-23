@@ -3,6 +3,7 @@ import { socket } from '../socket';
 import TimerBar from '../components/TimerBar.jsx';
 import QrJoin from '../components/QrJoin.jsx';
 import PlayerPanel from '../components/PlayerPanel.jsx';
+import { HostLobby, HostPodium } from '../components/Screens.jsx';
 import { useT } from '../i18n.jsx';
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -50,16 +51,12 @@ export default function HostView({ state }) {
     timeRemaining,
     timeUp,
     rankings,
+    canAdvance,
   } = state;
 
   if (phase === 'lobby') {
     return (
-      <div className="screen host center">
-        <h1 className="logo">{title}</h1>
-        <p className="hint">{t('host.scanJoin')}</p>
-
-        <QrJoin size={300} showUrl />
-
+      <HostLobby logo={title} players={players} canStart={players.length > 0 && totalQuestions > 0}>
         <div className="quizload">
           <span className="quizload-info">
             {t('host.quizLabel')} <b>{title}</b> · {t('host.questionCount', { n: totalQuestions })}
@@ -70,21 +67,7 @@ export default function HostView({ state }) {
           </button>
           {loadMsg && <span className={`loadmsg ${loadMsg.ok ? 'ok' : 'err'}`}>{loadMsg.text}</span>}
         </div>
-
-        <h2>{t('host.playersReady', { n: players.length })}</h2>
-        <ul className="playerlist">
-          {players.map((p) => (
-            <li key={p.id}>{p.name}</li>
-          ))}
-        </ul>
-        <button
-          className="primary big"
-          disabled={players.length === 0 || totalQuestions === 0}
-          onClick={() => socket.emit('host:start')}
-        >
-          {t('common.startGame')}
-        </button>
-      </div>
+      </HostLobby>
     );
   }
 
@@ -114,7 +97,7 @@ export default function HostView({ state }) {
     const connected = players.filter((p) => p.connected);
     const answeredCount = connected.filter((p) => p.answered).length;
     const everyoneAnswered = connected.length > 0 && answeredCount === connected.length;
-    const canReveal = everyoneAnswered || timeUp;
+    const canReveal = !!canAdvance; // server-computed: everyone connected answered, or time's up
     return (
       <div className="screen host game">
         <header className="qheader">
@@ -187,31 +170,7 @@ export default function HostView({ state }) {
     );
   }
 
-  if (phase === 'podium') {
-    const onPodium = rankings.filter((p) => p.rank <= 3); // ties can mean >3 entries
-    const rest = rankings.filter((p) => p.rank > 3);
-    return (
-      <div className="screen host center podium-screen">
-        <h1 className="logo">{t('host.finalScores')}</h1>
-        <div className="podium">
-          {onPodium.map((p) => (
-            <Step key={p.id} place={p.rank} p={p} />
-          ))}
-        </div>
-        {rest.length > 0 && (
-          <ul className="restlist">
-            {rest.map((p) => (
-              <li key={p.id}>#{p.rank} {p.name} — {p.score}</li>
-            ))}
-          </ul>
-        )}
-        <button className="ghost" onClick={() => socket.emit('host:reset')}>{t('common.backToLobby')}</button>
-
-        <PlayerPanel players={players} />
-        <div className="qr-corner"><QrJoin size={110} /></div>
-      </div>
-    );
-  }
+  if (phase === 'podium') return <HostPodium rankings={rankings} players={players} />;
 
   return null;
 }
@@ -251,16 +210,5 @@ function Scoreboard({ players }) {
         <li key={p.id}><span>{p.name}</span><b>{p.score}</b></li>
       ))}
     </ul>
-  );
-}
-
-function Step({ place, p }) {
-  return (
-    <div className={`step step-${place}`}>
-      <div className="medal">{place === 1 ? '🥇' : place === 2 ? '🥈' : '🥉'}</div>
-      <div className="step-name">{p.name}</div>
-      <div className="step-score">{p.score}</div>
-      <div className="block">{place}</div>
-    </div>
   );
 }

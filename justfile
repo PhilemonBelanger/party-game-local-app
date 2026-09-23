@@ -27,6 +27,12 @@ logs:
 restart:
     docker compose restart
 
+# ---------- tests ----------
+
+# run the backend game-logic tests (in-process: fake clock, no sockets, no Docker)
+test:
+    cd backend; npm test
+
 # ---------- production / single exe ----------
 
 # build the single self-contained executable -> ./trivia.exe

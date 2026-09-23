@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon --legacy-watch --watch . --ext js,json server.js"
+    "dev": "nodemon --legacy-watch --watch . --ext js,json server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "express": "^4.19.2",

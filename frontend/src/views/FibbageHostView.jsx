@@ -3,6 +3,7 @@ import QrJoin from '../components/QrJoin.jsx';
 import TimerBar from '../components/TimerBar.jsx';
 import PlayerPanel from '../components/PlayerPanel.jsx';
 import FibbagePrompt, { useLangPick } from '../components/FibbagePrompt.jsx';
+import { HostLobby, HostPodium } from '../components/Screens.jsx';
 import { useT } from '../i18n.jsx';
 
 export default function FibbageHostView({ state }) {
@@ -12,54 +13,18 @@ export default function FibbageHostView({ state }) {
   const {
     phase, players = [], prompt, cards = [], truth, truthId, truthAttempters = [],
     promptIndex, totalPrompts, submittedCount, votedCount, totalInGame,
-    timeRemaining, timeLimit, timeUp, rankings, topThumbs,
+    timeRemaining, timeLimit, timeUp, rankings, topThumbs, canAdvance, points = {},
   } = state;
 
   if (phase === 'lobby') {
-    return (
-      <div className="screen host center">
-        <h1 className="logo">{t('fibbage.logo')}</h1>
-        <p className="hint">{t('host.scanJoin')}</p>
-        <QrJoin size={300} showUrl />
-        <h2>{t('host.playersReady', { n: players.length })}</h2>
-        <ul className="playerlist">
-          {players.map((p) => (
-            <li key={p.id} style={{ opacity: p.connected ? 1 : 0.5 }}>{p.name}</li>
-          ))}
-        </ul>
-        <button className="primary big" disabled={players.length < 2} onClick={() => socket.emit('host:start')}>
-          {t('common.startGame')}
-        </button>
-        {players.length < 2 && <p className="hint">{t('fibbage.needTwo')}</p>}
-      </div>
-    );
+    return <HostLobby logo={t('fibbage.logo')} players={players} canStart={players.length >= 2} needHint={t('fibbage.needTwo')} />;
   }
 
   if (phase === 'podium') {
-    const onPodium = (rankings || []).filter((p) => p.rank <= 3);
-    const rest = (rankings || []).filter((p) => p.rank > 3);
     return (
-      <div className="screen host center podium-screen">
-        <h1 className="logo">{t('host.finalScores')}</h1>
-        <div className="podium">
-          {onPodium.map((p) => (
-            <Step key={p.id} place={p.rank} p={p} />
-          ))}
-        </div>
-        {topThumbs && (
-          <div className="fb-mention">{t('fibbage.mostUpvoted', { name: topThumbs.name, n: topThumbs.thumbs })}</div>
-        )}
-        {rest.length > 0 && (
-          <ul className="restlist">
-            {rest.map((p) => (
-              <li key={p.id}>#{p.rank} {p.name} — {p.score}</li>
-            ))}
-          </ul>
-        )}
-        <button className="ghost" onClick={() => socket.emit('host:reset')}>{t('common.backToLobby')}</button>
-        <PlayerPanel players={players} />
-        <div className="qr-corner"><QrJoin size={110} /></div>
-      </div>
+      <HostPodium rankings={rankings} players={players}>
+        {topThumbs && <div className="fb-mention">{t('fibbage.mostUpvoted', { name: topThumbs.name, n: topThumbs.thumbs })}</div>}
+      </HostPodium>
     );
   }
 
@@ -70,7 +35,6 @@ export default function FibbageHostView({ state }) {
   );
 
   if (phase === 'answer') {
-    const canNext = (totalInGame > 0 && submittedCount === totalInGame) || timeUp;
     return (
       <div className="screen host game">
         {header}
@@ -80,8 +44,8 @@ export default function FibbageHostView({ state }) {
           {t('fibbage.submitted', { n: submittedCount, total: totalInGame })}{timeUp ? t('gartic.timesUpSuffix') : ''}
         </p>
         <div className="reveal-bar">
-          <button className="primary big" disabled={!canNext} onClick={() => socket.emit('fibbage:next')}>
-            {canNext ? t('fibbage.toVoting') : t('fibbage.waitingSubmit', { n: submittedCount, total: totalInGame })}
+          <button className="primary big" disabled={!canAdvance} onClick={() => socket.emit('fibbage:next')}>
+            {canAdvance ? t('fibbage.toVoting') : t('fibbage.waitingSubmit', { n: submittedCount, total: totalInGame })}
           </button>
         </div>
         <PlayerPanel players={players} showAnswered />
@@ -91,7 +55,6 @@ export default function FibbageHostView({ state }) {
   }
 
   if (phase === 'vote') {
-    const canNext = (totalInGame > 0 && votedCount === totalInGame) || timeUp;
     return (
       <div className="screen host game">
         {header}
@@ -107,8 +70,8 @@ export default function FibbageHostView({ state }) {
           {t('fibbage.voted', { n: votedCount, total: totalInGame })}{timeUp ? t('gartic.timesUpSuffix') : ''}
         </p>
         <div className="reveal-bar">
-          <button className="primary big" disabled={!canNext} onClick={() => socket.emit('fibbage:next')}>
-            {canNext ? t('fibbage.revealResults') : t('fibbage.waitingVote', { n: votedCount, total: totalInGame })}
+          <button className="primary big" disabled={!canAdvance} onClick={() => socket.emit('fibbage:next')}>
+            {canAdvance ? t('fibbage.revealResults') : t('fibbage.waitingVote', { n: votedCount, total: totalInGame })}
           </button>
         </div>
         <PlayerPanel players={players} showAnswered />
@@ -124,7 +87,7 @@ export default function FibbageHostView({ state }) {
         {header}
         <FibbagePrompt prompt={prompt} fill={pick(truth, state.truthFR)} className="big" />
         {truthAttempters.length > 0 && (
-          <div className="fb-truth-attempt">{t('fibbage.triedTruthReveal', { names: truthAttempters.join(', ') })}</div>
+          <div className="fb-truth-attempt">{t('fibbage.triedTruthReveal', { names: truthAttempters.join(', '), pts: points.truthAttempt })}</div>
         )}
         <div className="fb-cards host reveal">
           {cards.map((c) => (
@@ -161,15 +124,4 @@ export default function FibbageHostView({ state }) {
   }
 
   return null;
-}
-
-function Step({ place, p }) {
-  return (
-    <div className={`step step-${place}`}>
-      <div className="medal">{place === 1 ? '🥇' : place === 2 ? '🥈' : '🥉'}</div>
-      <div className="step-name">{p.name}</div>
-      <div className="step-score">{p.score}</div>
-      <div className="block">{place}</div>
-    </div>
-  );
 }

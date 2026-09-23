@@ -1,84 +1,62 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { socket } from '../socket';
 import TimerBar from '../components/TimerBar.jsx';
 import FibbagePrompt, { useLangPick } from '../components/FibbagePrompt.jsx';
+import { Notice, PlayerFinal, Spectating } from '../components/Screens.jsx';
+import { useKeyedState, usePhaseInput } from '../hooks.js';
 import { useT } from '../i18n.jsx';
 
-// must match the server's norm() so own-card detection lines up (accent-folded)
-const norm = (s) =>
-  String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').trim().replace(/\s+/g, ' ').toLowerCase();
+// per-prompt local state (resets when gameId or promptIndex changes)
+const PROMPT_INIT = { text: '', truthWarn: false, selectedCard: null, thumbCard: null, ownCardId: null, result: null };
+// per-game local state (resets on a new game → clears spectator + suggestion count)
+const GAME_INIT = { spectator: false, sugUsed: 0, sugMax: 3 };
 
 export default function FibbagePlayerView({ state, me }) {
   const t = useT();
   const pick = useLangPick();
-  // answer phase
-  const [text, setText] = useState('');
-  const [submitted, setSubmitted] = useState(false);
-  const [truthWarn, setTruthWarn] = useState(false);
-  const [sugUsed, setSugUsed] = useState(0); // game-wide suggestion count (persists across prompts)
-  const [sugMax, setSugMax] = useState(3);
-  const [myLie, setMyLie] = useState(''); // my submitted lie text (to hide my own card)
-  // vote phase
-  const [selectedCard, setSelectedCard] = useState(null);
-  const [thumbCard, setThumbCard] = useState(null);
-  const [voted, setVoted] = useState(false);
-  const [ownCardId, setOwnCardId] = useState(null); // my own card (server-authoritative)
-  // shared
-  const [lockedOut, setLockedOut] = useState(false); // timer hit 0, input frozen
-  const [spectator, setSpectator] = useState(false);
-  const [result, setResult] = useState(null);
-
-  const textRef = useRef('');
-  textRef.current = text;
+  const gameId = state?.gameId ?? 0;
   const promptIndex = state?.promptIndex;
+  const phase = state?.phase;
+  const timeUp = state?.timeUp;
+  const promptKey = `${gameId}:${promptIndex}`;
 
-  // fresh prompt → reset everything (each prompt restarts at the answer phase)
-  useEffect(() => {
-    setText('');
-    setSubmitted(false);
-    setTruthWarn(false);
-    setMyLie(''); // sugUsed is game-wide — not reset per prompt
-    setSelectedCard(null);
-    setThumbCard(null);
-    setVoted(false);
-    setOwnCardId(null);
-    setLockedOut(false);
-    setResult(null);
-  }, [promptIndex]);
+  const [p, setP] = useKeyedState(promptKey, PROMPT_INIT);
+  const [game, setGame] = useKeyedState(gameId, GAME_INIT);
+  const textRef = useRef('');
+  textRef.current = p.text;
 
-  // Entering a fresh phase clears the time-up lock. lockedOut is shared by the answer and
-  // vote phases (same promptIndex), so without this a player who ran out of time answering
-  // would stay stuck on the "time's up" screen through the whole voting phase.
-  useEffect(() => {
-    setLockedOut(false);
-  }, [state?.phase]);
+  const emitDraft = (text) => socket.emit('fibbage:draft', { gameId, promptIndex, text });
+  const answer = usePhaseInput({
+    step: `${promptKey}:answer`,
+    active: phase === 'answer' && !game.spectator,
+    timeUp,
+    draft: () => emitDraft(textRef.current),
+  });
+  const vote = usePhaseInput({ step: `${promptKey}:vote`, active: phase === 'vote' && !game.spectator, timeUp });
 
-  // private events: per-player result + reconnect resume
+  // private events carry their own gameId/promptIndex, so they land on the right step
+  const markAnswer = answer.markSubmitted;
+  const markVote = vote.markSubmitted;
   useEffect(() => {
-    const onResult = (r) => setResult(r);
+    const onResult = (r) => setP({ result: r }, `${r.gameId}:${r.promptIndex}`);
     const onSync = (s) => {
-      if (s?.spectator) {
-        setSpectator(true);
-        return;
-      }
-      if (s?.lie != null) {
-        setMyLie(s.lie);
-        if (s.phase === 'answer') {
-          setSubmitted(true);
-        }
-      }
-      if (s?.votedCardId != null) {
-        setSelectedCard(s.votedCardId);
-        setVoted(true);
-      }
-      if (s?.thumbCardId != null) setThumbCard(s.thumbCardId);
-      if (s?.ownCardId != null) setOwnCardId(s.ownCardId);
-      if (s?.suggestionsUsed != null) setSugUsed(s.suggestionsUsed);
-      if (s?.maxSuggestions != null) setSugMax(s.maxSuggestions);
+      if (!s) return;
+      if (s.spectator) return setGame({ spectator: true }, s.gameId);
+      const key = `${s.gameId}:${s.promptIndex}`;
+      setGame({ spectator: false, sugUsed: s.suggestionsUsed ?? 0, sugMax: s.maxSuggestions ?? 3 }, s.gameId);
+      setP(
+        {
+          ...(s.ownCardId != null ? { ownCardId: s.ownCardId } : {}),
+          ...(s.votedCardId != null ? { selectedCard: s.votedCardId } : {}),
+          ...(s.thumbCardId != null ? { thumbCard: s.thumbCardId } : {}),
+        },
+        key
+      );
+      if (s.lie != null) markAnswer(`${key}:answer`);
+      if (s.votedCardId != null) markVote(`${key}:vote`);
     };
-    // server tells us which card is ours at the start of the vote phase (works even when our
-    // answer was auto-filled from a draft, so we never had a submit callback with our lie)
-    const onMyCard = (m) => setOwnCardId(m?.cardId ?? null);
+    // which card is ours, sent at vote start (works even when our answer was auto-filled from a draft)
+    const onMyCard = (m) => setP({ ownCardId: m?.cardId ?? null }, `${m.gameId}:${m.promptIndex}`);
     socket.on('result', onResult);
     socket.on('fibbage:sync', onSync);
     socket.on('fibbage:mycard', onMyCard);
@@ -87,88 +65,41 @@ export default function FibbagePlayerView({ state, me }) {
       socket.off('fibbage:sync', onSync);
       socket.off('fibbage:mycard', onMyCard);
     };
-  }, []);
-
-  const timeUp = state?.timeUp;
-  const phase = state?.phase;
-
-  // answer draft heartbeat — keeps in-progress text if the round advances before submit
-  useEffect(() => {
-    if (phase !== 'answer' || submitted || lockedOut || spectator) return;
-    const id = setInterval(
-      () => socket.emit('fibbage:draft', { promptIndex, text: textRef.current }),
-      2000
-    );
-    return () => clearInterval(id);
-  }, [phase, submitted, lockedOut, spectator, promptIndex]);
-
-  // time's up: freeze input (send a final draft for answer phase)
-  useEffect(() => {
-    if (!timeUp || lockedOut || spectator) return;
-    if (phase === 'answer' && !submitted) {
-      socket.emit('fibbage:draft', { promptIndex, text: textRef.current });
-      setLockedOut(true);
-    } else if (phase === 'vote' && !voted) {
-      setLockedOut(true);
-    }
-  }, [timeUp]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [setP, setGame, markAnswer, markVote]);
 
   if (!state) return <div className="screen center">{t('common.connecting')}</div>;
-  const { cards = [], suggestions = [], suggestionsFR = [], prompt, rankings } = state;
+  const { cards = [], suggestions = [], suggestionsFR = [], prompt, rankings, points = {} } = state;
 
-  if (spectator) {
-    return (
-      <div className="screen player center">
-        <h2>{t('gartic.spectating')}</h2>
-        <p className="hint">{t('gartic.spectatingHint')}</p>
-      </div>
-    );
-  }
-
-  if (phase === 'lobby') {
-    return (
-      <div className="screen player center">
-        <h2>{t('gartic.youreIn')}</h2>
-        <p className="hint">{t('fibbage.waitStart')}</p>
-      </div>
-    );
-  }
-
-  if (phase === 'podium') {
-    const mine = (rankings || []).find((p) => p.id === me);
-    const tied = mine && rankings.filter((p) => p.rank === mine.rank).length > 1;
-    return (
-      <div className="screen player center">
-        <h1>{t('player.gameOver')}</h1>
-        {mine && <h2>{tied ? t('player.tiedFor', { rank: mine.rank }) : t('player.youFinished', { rank: mine.rank })}</h2>}
-        {mine && <p className="score-line">{t('player.finalScore')} <b>{mine.score}</b></p>}
-      </div>
-    );
-  }
+  if (game.spectator) return <Spectating />;
+  if (phase === 'lobby') return <Notice title={t('gartic.youreIn')} hint={t('fibbage.waitStart')} />;
+  if (phase === 'podium') return <PlayerFinal rankings={rankings} me={me} />;
 
   // ---- answer phase ----
   function submitLie() {
-    const clean = text.trim();
+    const clean = p.text.trim();
     if (!clean) return;
-    socket.emit('fibbage:submit', { promptIndex, text: clean }, (res) => {
+    const forStep = `${promptKey}:answer`;
+    socket.emit('fibbage:submit', { gameId, promptIndex, text: clean }, (res) => {
       if (res?.ok) {
-        setMyLie(clean);
-        setSubmitted(true);
-        setTruthWarn(false);
+        setP({ truthWarn: false }, promptKey);
+        answer.markSubmitted(forStep);
       } else if (res?.reason === 'truth') {
-        setTruthWarn(true); // "that's the real answer — pick something else!"
+        setP({ truthWarn: true }, promptKey); // "that's the real answer — pick something else!"
       }
     });
   }
   function getSuggestion() {
     // localized pool: FR list when the player's UI is French (fall back to EN)
     const list = suggestionsFR.length === suggestions.length && suggestionsFR.length ? pick(suggestions, suggestionsFR) : suggestions;
-    if (sugUsed >= sugMax || list.length === 0) return;
+    if (game.sugUsed >= game.sugMax || list.length === 0) return;
     // server meters the game-wide allowance; only fill the box if it grants one
-    socket.emit('fibbage:suggestion', { promptIndex }, (res) => {
-      if (res?.used != null) setSugUsed(res.used);
-      if (res?.max != null) setSugMax(res.max);
-      if (res?.ok) setText(list[Math.floor(Math.random() * list.length)]);
+    socket.emit('fibbage:suggestion', { gameId, promptIndex }, (res) => {
+      if (res?.used != null) setGame({ sugUsed: res.used, ...(res.max != null ? { sugMax: res.max } : {}) }, gameId);
+      if (res?.ok) {
+        const text = list[Math.floor(Math.random() * list.length)];
+        setP({ text }, promptKey);
+        emitDraft(text);
+      }
     });
   }
 
@@ -176,40 +107,33 @@ export default function FibbagePlayerView({ state, me }) {
     return (
       <div className="screen player fibbage-play">
         <TimerBar remaining={state.timeRemaining} limit={state.timeLimit} />
-        {submitted ? (
-          <div className="center grow">
-            <h2>{t('fibbage.lieLocked')}</h2>
-            <p className="hint">{t('gartic.waitOthers')}</p>
-          </div>
-        ) : lockedOut ? (
-          <div className="center grow">
-            <h2>{t('player.timesUp')}</h2>
-            <p className="hint">{t('player.waitReveal')}</p>
-          </div>
+        {answer.submitted ? (
+          <Notice grow title={t('fibbage.lieLocked')} hint={t('gartic.waitOthers')} />
+        ) : answer.lockedOut ? (
+          <Notice grow title={t('player.timesUp')} hint={t('player.waitReveal')} />
         ) : (
           <div className="g-task">
             <FibbagePrompt prompt={prompt} />
             <h3 className="fb-instruct">{t('fibbage.writeLie')}</h3>
-            {truthWarn && <p className="fb-truth-warn">{t('fibbage.thatsTheTruth')}</p>}
+            {p.truthWarn && <p className="fb-truth-warn">{t('fibbage.thatsTheTruth', { pts: points.truthAttempt })}</p>}
             <input
-              value={text}
+              value={p.text}
               maxLength={120}
               autoFocus
               placeholder={t('fibbage.liePlaceholder')}
               onChange={(e) => {
-                setText(e.target.value);
-                setTruthWarn(false);
+                setP({ text: e.target.value, truthWarn: false });
                 // draft every keystroke so an unsubmitted textbox is autosent on time-up
                 // even if the host advances the instant the timer hits 0
-                socket.emit('fibbage:draft', { promptIndex, text: e.target.value });
+                emitDraft(e.target.value);
               }}
               onKeyDown={(e) => e.key === 'Enter' && submitLie()}
             />
-            <button className="ghost" disabled={sugUsed >= sugMax || suggestions.length === 0} onClick={getSuggestion}>
+            <button className="ghost" disabled={game.sugUsed >= game.sugMax || suggestions.length === 0} onClick={getSuggestion}>
               {t('fibbage.getSuggestion')}
             </button>
-            <p className="fb-sug-count">{t('fibbage.suggestionsLeft', { used: sugUsed, max: sugMax })}</p>
-            <button className="primary big" disabled={!text.trim()} onClick={submitLie}>
+            <p className="fb-sug-count">{t('fibbage.suggestionsLeft', { used: game.sugUsed, max: game.sugMax })}</p>
+            <button className="primary big" disabled={!p.text.trim()} onClick={submitLie}>
               {t('common.submit')}
             </button>
           </div>
@@ -220,49 +144,38 @@ export default function FibbagePlayerView({ state, me }) {
 
   // ---- vote phase ----
   if (phase === 'vote') {
-    // prefer the server-authoritative own-card id; fall back to matching my submitted lie text
-    const myCardId = ownCardId ?? (myLie ? cards.find((c) => norm(c.text) === norm(myLie))?.id ?? null : null);
+    const { selectedCard, thumbCard, ownCardId } = p;
     // must pick a truth AND thumb a different card before locking in
     const canLock = selectedCard != null && thumbCard != null && selectedCard !== thumbCard;
     function lockVote() {
       if (!canLock) return;
-      socket.emit('fibbage:vote', { promptIndex, cardId: selectedCard, thumbId: thumbCard });
-      setVoted(true);
+      socket.emit('fibbage:vote', { gameId, promptIndex, cardId: selectedCard, thumbId: thumbCard });
+      vote.markSubmitted(`${promptKey}:vote`);
     }
     return (
       <div className="screen player fibbage-play">
         <TimerBar remaining={state.timeRemaining} limit={state.timeLimit} />
-        {voted ? (
-          <div className="center grow">
-            <h2>{t('fibbage.voteLocked')}</h2>
-            <p className="hint">{t('gartic.waitOthers')}</p>
-          </div>
-        ) : lockedOut ? (
-          <div className="center grow">
-            <h2>{t('player.timesUp')}</h2>
-            <p className="hint">{t('player.waitReveal')}</p>
-          </div>
+        {vote.submitted ? (
+          <Notice grow title={t('fibbage.voteLocked')} hint={t('gartic.waitOthers')} />
+        ) : vote.lockedOut ? (
+          <Notice grow title={t('player.timesUp')} hint={t('player.waitReveal')} />
         ) : (
           <div className="g-task">
             <FibbagePrompt prompt={prompt} />
             <h3 className="fb-instruct">{t('fibbage.pickTrue')}</h3>
             <div className="fb-cards">
               {cards.map((c) => {
-                const own = c.id === myCardId;
+                const own = c.id === ownCardId;
                 return (
                   <div key={c.id} className={`fb-card-row ${selectedCard === c.id ? 'sel' : ''} ${own ? 'own' : ''}`}>
-                    <button
-                      className="fb-card-pick"
-                      disabled={own || thumbCard === c.id}
-                      onClick={() => setSelectedCard(c.id)}
-                    >
+                    <button className="fb-card-pick" disabled={own || thumbCard === c.id} onClick={() => setP({ selectedCard: c.id })}>
                       {pick(c.text, c.textFR)}
                       {own && <span className="fb-by">{t('fibbage.yourLie')}</span>}
                     </button>
                     <button
                       className={`fb-thumb ${thumbCard === c.id ? 'on' : ''}`}
                       disabled={own || selectedCard === c.id}
-                      onClick={() => setThumbCard(thumbCard === c.id ? null : c.id)}
+                      onClick={() => setP({ thumbCard: thumbCard === c.id ? null : c.id })}
                       title={t('fibbage.thumbHint')}
                     >
                       👍
@@ -283,6 +196,7 @@ export default function FibbagePlayerView({ state, me }) {
 
   // ---- reveal phase ----
   if (phase === 'reveal') {
+    const { result } = p;
     return (
       <div className="screen player center">
         {result && (
@@ -293,10 +207,10 @@ export default function FibbagePlayerView({ state, me }) {
         <h2>{t('player.answerIs')} <b>{pick(state.truth, state.truthFR)}</b></h2>
         {result && (
           <ul className="fb-breakdown">
-            {result.triedTruth && <li>{t('fibbage.bdTriedTruth')}</li>}
-            {result.guessedRight && <li>{t('fibbage.bdGuessed')}</li>}
-            {result.votesOnYou > 0 && <li>{t('fibbage.bdFooled', { n: result.votesOnYou })}</li>}
-            {result.thumbBonus && <li>{t('fibbage.bdThumbs')}</li>}
+            {result.triedTruth && <li>{t('fibbage.bdTriedTruth', { pts: points.truthAttempt })}</li>}
+            {result.guessedRight && <li>{t('fibbage.bdGuessed', { pts: points.truth })}</li>}
+            {result.votesOnYou > 0 && <li>{t('fibbage.bdFooled', { n: result.votesOnYou, pts: points.vote })}</li>}
+            {result.thumbBonus && <li>{t('fibbage.bdThumbs', { pts: points.thumb })}</li>}
           </ul>
         )}
         {result && <p className="score-line">{t('player.yourScore')} <b>{result.newScore}</b></p>}

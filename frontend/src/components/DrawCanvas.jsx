@@ -11,6 +11,7 @@ const COLORS = [
 ];
 const W = 900;
 const H = 640;
+const MAX_FRAMES = 40; // matches MAX_FRAMES in backend/gartic.js
 
 // Drawing surface with pen / eraser / color / size.
 // Records the drawing PROCESS as periodic downscaled snapshots (getFrames) — this uses
@@ -43,13 +44,22 @@ const DrawCanvas = forwardRef(function DrawCanvas(_props, ref) {
     return canvasRef.current.toDataURL('image/png');
   }
 
+  // Record a frame; when the flipbook passes MAX_FRAMES, drop every other older frame.
+  // Keeps the submit payload bounded (full-res PNGs add up fast on a long drawing) while
+  // the replay still covers the whole process. The server caps at the same count.
+  function capture() {
+    frames.current.push(snapshot());
+    dirty.current = false;
+    if (frames.current.length > MAX_FRAMES) {
+      const last = frames.current.length - 1;
+      frames.current = frames.current.filter((_, i) => i % 2 === 0 || i === last);
+    }
+  }
+
   // periodically capture a frame when the canvas has changed
   useEffect(() => {
     const id = setInterval(() => {
-      if (dirty.current) {
-        frames.current.push(snapshot());
-        dirty.current = false;
-      }
+      if (dirty.current) capture();
     }, 900);
     return () => clearInterval(id);
   }, []);
@@ -57,10 +67,7 @@ const DrawCanvas = forwardRef(function DrawCanvas(_props, ref) {
   useImperativeHandle(ref, () => ({
     getDataURL: () => canvasRef.current.toDataURL('image/png'),
     getFrames: () => {
-      if (dirty.current) {
-        frames.current.push(snapshot()); // capture the final state
-        dirty.current = false;
-      }
+      if (dirty.current) capture(); // capture the final state
       return frames.current;
     },
   }));

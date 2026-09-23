@@ -3,6 +3,7 @@ import QrJoin from '../components/QrJoin.jsx';
 import TimerBar from '../components/TimerBar.jsx';
 import GarticReveal from '../components/GarticReveal.jsx';
 import PlayerPanel from '../components/PlayerPanel.jsx';
+import { HostLobby } from '../components/Screens.jsx';
 import { useT } from '../i18n.jsx';
 
 function roundLabel(t, round, taskType) {
@@ -14,37 +15,20 @@ function roundLabel(t, round, taskType) {
 export default function GarticHostView({ state }) {
   const t = useT();
   if (!state) return <div className="screen center">{t('common.connecting')}</div>;
-  const { phase, players = [], round, taskType, submittedCount, totalInGame, timeRemaining, timeLimit, timeUp, reveal } = state;
+  const { phase, players = [], round, taskType, submittedCount, totalInGame, timeRemaining, timeLimit, timeUp, reveal, canAdvance } = state;
 
   if (phase === 'lobby') {
-    return (
-      <div className="screen host center">
-        <h1 className="logo">{t('gartic.logo')}</h1>
-        <p className="hint">{t('host.scanJoin')}</p>
-        <QrJoin size={300} showUrl />
-        <h2>{t('host.playersReady', { n: players.length })}</h2>
-        <ul className="playerlist">
-          {players.map((p) => (
-            <li key={p.id} style={{ opacity: p.connected ? 1 : 0.5 }}>{p.name}</li>
-          ))}
-        </ul>
-        <button className="primary big" disabled={players.length < 2} onClick={() => socket.emit('host:start')}>
-          {t('common.startGame')}
-        </button>
-        {players.length < 2 && <p className="hint">{t('gartic.needTwo')}</p>}
-      </div>
-    );
+    return <HostLobby logo={t('gartic.logo')} players={players} canStart={players.length >= 2} needHint={t('gartic.needTwo')} />;
   }
 
   if (phase === 'round') {
-    const canNext = (totalInGame > 0 && submittedCount === totalInGame) || timeUp;
     return (
       <div className="screen host game center">
         <h1 className="question">{roundLabel(t, round, taskType)}</h1>
         <TimerBar remaining={timeRemaining} limit={timeLimit} />
         <p className="g-count">{t('gartic.done', { n: submittedCount, total: totalInGame })}{timeUp ? t('gartic.timesUpSuffix') : ''}</p>
-        <button className="primary big" disabled={!canNext} onClick={() => socket.emit('gartic:next')}>
-          {canNext ? t('gartic.nextRound') : t('gartic.waiting', { n: submittedCount, total: totalInGame })}
+        <button className="primary big" disabled={!canAdvance} onClick={() => socket.emit('gartic:next')}>
+          {canAdvance ? t('gartic.nextRound') : t('gartic.waiting', { n: submittedCount, total: totalInGame })}
         </button>
         <PlayerPanel players={players} showAnswered showScore={false} />
         <div className="qr-corner"><QrJoin size={110} /></div>

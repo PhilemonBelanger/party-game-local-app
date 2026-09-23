@@ -1,6 +1,8 @@
-// Reads the single-file frontend build + default quiz and writes backend/embedded.js,
-// so the server can serve the whole UI from a string (no static files needed).
-import { readFileSync, writeFileSync } from 'fs';
+// Reads the single-file frontend build + default quiz + Fibbage pool and writes
+// build/embedded.js, so the server can serve the whole UI from a string (no static files).
+// backend/embedded.js (the committed dev stub) is never touched; build-server.mjs swaps
+// build/embedded.js in for it when bundling.
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -34,6 +36,7 @@ export const INDEX_HTML = ${JSON.stringify(html)};
 export const DEFAULT_QUIZ = ${JSON.stringify(quiz)};
 export const DEFAULT_FIBBAGE = ${JSON.stringify(fibbage)};
 `;
-writeFileSync(join(root, 'backend', 'embedded.js'), out);
+mkdirSync(join(root, 'build'), { recursive: true });
+writeFileSync(join(root, 'build', 'embedded.js'), out);
 const fibCount = (fibbage.normal?.length || 0) + (fibbage.final?.length || 0);
-console.log(`embedded.js written (${(html.length / 1024).toFixed(0)} KB UI, ${quiz.questions.length} default questions, ${fibCount} fibbage prompts)`);
+console.log(`build/embedded.js written (${(html.length / 1024).toFixed(0)} KB UI, ${quiz.questions.length} default questions, ${fibCount} fibbage prompts)`);
