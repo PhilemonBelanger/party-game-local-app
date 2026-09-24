@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { socket } from '../socket';
-import TimerBar from '../components/TimerBar.jsx';
+import Timer from '../components/Timer.jsx';
 import FibbagePrompt, { useLangPick } from '../components/FibbagePrompt.jsx';
 import { Notice, PlayerFinal, Spectating } from '../components/Screens.jsx';
 import { useKeyedState, usePhaseInput } from '../hooks.js';
@@ -106,7 +106,7 @@ export default function FibbagePlayerView({ state, me }) {
   if (phase === 'answer') {
     return (
       <div className="screen player fibbage-play">
-        <TimerBar remaining={state.timeRemaining} limit={state.timeLimit} />
+        <div className="timer-row"><Timer remaining={state.timeRemaining} limit={state.timeLimit} size={64} /></div>
         {answer.submitted ? (
           <Notice grow title={t('fibbage.lieLocked')} hint={t('gartic.waitOthers')} />
         ) : answer.lockedOut ? (
@@ -154,7 +154,7 @@ export default function FibbagePlayerView({ state, me }) {
     }
     return (
       <div className="screen player fibbage-play">
-        <TimerBar remaining={state.timeRemaining} limit={state.timeLimit} />
+        <div className="timer-row"><Timer remaining={state.timeRemaining} limit={state.timeLimit} size={64} /></div>
         {vote.submitted ? (
           <Notice grow title={t('fibbage.voteLocked')} hint={t('gartic.waitOthers')} />
         ) : vote.lockedOut ? (

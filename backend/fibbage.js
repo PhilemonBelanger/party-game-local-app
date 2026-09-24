@@ -8,7 +8,7 @@
 // Same shape as gartic.js: host-driven advancement, per-phase timer with timeUp lock,
 // drafts as the safety net so in-progress text isn't lost.
 
-import { allDone, connectedKeys, isStale, rankings, roster, shuffle } from './shared.js';
+import { allDone, connectedKeys, isStale, podiumEntries, rankings, roster, shuffle } from './shared.js';
 
 export const DEFAULT_POINTS = {
   truth: 150, // guessed the real answer
@@ -370,7 +370,7 @@ export function createFibbage({
       ...timer.snapshot(),
     };
     if (g.phase === 'podium') {
-      out.rankings = rankings(g.playerKeys.map((k) => ({ id: k, name: nameOf(k), score: g.scores[k] || 0 })));
+      out.rankings = rankings(podiumEntries(players, g.playerKeys, (k) => g.scores[k] || 0));
       // special mention: most cumulative thumbs (only if anyone got any)
       let top = null;
       for (const k of g.playerKeys) {

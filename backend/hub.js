@@ -17,8 +17,12 @@ import { createCountdown, realClock } from './countdown.js';
 
 export const nameKey = (name) => String(name || '').trim().toLowerCase();
 
+// A buddy is the player's chosen avatar (an emoji picked client-side). The server only
+// stores it: any short string, else null (the client then derives one from the name).
+export const cleanBuddy = (b) => (typeof b === 'string' && b.trim() && b.length <= 16 ? b.trim() : null);
+
 export function createHub({ transport, makeModes, clock = realClock, initialMode = 'trivia' }) {
-  const players = new Map(); // nameKey -> { id, name, connected, socketId }
+  const players = new Map(); // nameKey -> { id, name, buddy, connected, socketId }
   const socketToKey = new Map(); // socketId -> nameKey
   let modeName = initialMode;
   let gameCounter = 0;
@@ -45,8 +49,11 @@ export function createHub({ transport, makeModes, clock = realClock, initialMode
 
   const connectedKeys = () => [...players.values()].filter((p) => p.connected).map((p) => p.id);
 
-  function join(socketId, name) {
-    const clean = String(name || '').trim().slice(0, 16) || 'Player';
+  // payload: { name, buddy } (current clients) or a bare name string (older clients)
+  function join(socketId, payload) {
+    const obj = payload && typeof payload === 'object' ? payload : { name: payload };
+    const clean = String(obj.name || '').trim().slice(0, 16) || 'Player';
+    const buddy = cleanBuddy(obj.buddy);
     const key = nameKey(clean);
     let p = players.get(key);
     if (p) {
@@ -59,8 +66,9 @@ export function createHub({ transport, makeModes, clock = realClock, initialMode
       p.connected = true;
       p.socketId = socketId;
       p.name = clean;
+      if (buddy) p.buddy = buddy; // a rejoin without a buddy keeps the old one
     } else {
-      p = { id: key, name: clean, connected: true, socketId };
+      p = { id: key, name: clean, buddy, connected: true, socketId };
       players.set(key, p);
     }
     socketToKey.set(socketId, key);

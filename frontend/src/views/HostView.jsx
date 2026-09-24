@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { socket } from '../socket';
-import TimerBar from '../components/TimerBar.jsx';
+import Timer from '../components/Timer.jsx';
+import { Ask, Buddy } from '../components/Sky.jsx';
 import QrJoin from '../components/QrJoin.jsx';
 import PlayerPanel from '../components/PlayerPanel.jsx';
 import { HostLobby, HostPodium } from '../components/Screens.jsx';
@@ -100,13 +101,11 @@ export default function HostView({ state }) {
     const canReveal = !!canAdvance; // server-computed: everyone connected answered, or time's up
     return (
       <div className="screen host game">
-        <header className="qheader">
-          <span>{t('host.questionXofY', { n: questionNumber, total: totalQuestions })}</span>
-        </header>
+        {phase === 'question' && <Timer remaining={timeRemaining} limit={state.timeLimit} size={180} className="rail" />}
 
-        {phase === 'question' && <TimerBar remaining={timeRemaining} limit={state.timeLimit} />}
-
-        {question.text && <h1 className="question">{question.text}</h1>}
+        <Ask kicker={t('host.questionXofY', { n: questionNumber, total: totalQuestions })}>
+          {question.text && <h1 className="question">{question.text}</h1>}
+        </Ask>
         {question.image && (
           <div className="qmedia">
             <img className="question-img" src={question.image} alt="" />
@@ -116,7 +115,7 @@ export default function HostView({ state }) {
         {question.type === 'number' ? (
           <NumberPanel phase={phase} players={players} correctAnswer={correctAnswer} />
         ) : (
-          <div className="choices host-choices">
+          <div className={`choices host-choices ${question.choices.length > 4 ? 'many' : ''}`}>
             {question.choices.map((c, i) => {
               const correct = phase === 'reveal' && i === correctIndex;
               // players who picked this choice (only available during reveal); no chip for timeouts
@@ -131,7 +130,7 @@ export default function HostView({ state }) {
                   {pickers.length > 0 && (
                     <span className="chips">
                       {pickers.map((p) => (
-                        <span key={p.id} className="chip">{p.name}</span>
+                        <span key={p.id} className="chip"><Buddy player={p} size={28} />{p.name}</span>
                       ))}
                     </span>
                   )}
@@ -160,7 +159,6 @@ export default function HostView({ state }) {
             <button className="primary big" onClick={() => socket.emit('host:next')}>
               {lastItem ? t('common.showPodium') : t('common.next')}
             </button>
-            <Scoreboard players={players} />
           </div>
         )}
 
@@ -202,13 +200,3 @@ function NumberPanel({ phase, players, correctAnswer }) {
   );
 }
 
-function Scoreboard({ players }) {
-  const sorted = [...players].sort((a, b) => b.score - a.score);
-  return (
-    <ul className="scoreboard">
-      {sorted.map((p) => (
-        <li key={p.id}><span>{p.name}</span><b>{p.score}</b></li>
-      ))}
-    </ul>
-  );
-}

@@ -37,14 +37,19 @@ export function allDone(players, keys, done) {
   return conn.length > 0 && conn.every(done);
 }
 
-// Roster rows for PlayerPanel / lobby lists: { id, name, connected, ...extra(key) }.
+// Roster rows for PlayerPanel / lobby lists: { id, name, buddy, connected, ...extra(key) }.
 // `keys` null → every known player (lobby); otherwise just the in-game snapshot.
 export function roster(players, keys, extra = () => ({})) {
   const list = keys ?? [...players.keys()];
   return list.map((key) => {
     const p = players.get(key);
-    return { id: key, name: p?.name || '?', connected: !!p?.connected, ...extra(key) };
+    return { id: key, name: p?.name || '?', buddy: p?.buddy ?? null, connected: !!p?.connected, ...extra(key) };
   });
+}
+
+// Podium entries: { id, name, buddy, score } for rankings().
+export function podiumEntries(players, keys, scoreOf) {
+  return keys.map((k) => ({ id: k, name: players.get(k)?.name || '?', buddy: players.get(k)?.buddy ?? null, score: scoreOf(k) }));
 }
 
 // A payload is stale if it carries a gameId/tag that doesn't match the live one.

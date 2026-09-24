@@ -6,7 +6,7 @@
 // the timer hit 0. Per-player trivia data (score/answered/choice) lives here, keyed by
 // the hub's player key; the hub's player map only holds identity + connection.
 
-import { allDone, rankings, roster } from './shared.js';
+import { allDone, podiumEntries, rankings, roster } from './shared.js';
 
 // A choice may be a plain string OR an object { text?, image? }.
 // image is any <img src>: a data: URI (base64) or an http(s) URL.
@@ -216,7 +216,7 @@ export function createTrivia({ getPlayers, send, broadcast, createTimer, newGame
       out.lastItem = isLastItem(questionIndex);
     }
     if (phase === 'podium') {
-      out.rankings = rankings(allKeys().map((k) => ({ id: k, name: players.get(k)?.name || '?', score: data.get(k)?.score || 0 })));
+      out.rankings = rankings(podiumEntries(players, allKeys(), (k) => data.get(k)?.score || 0));
     }
     return out;
   }

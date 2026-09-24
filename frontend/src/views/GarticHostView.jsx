@@ -1,6 +1,7 @@
 import { socket } from '../socket';
 import QrJoin from '../components/QrJoin.jsx';
-import TimerBar from '../components/TimerBar.jsx';
+import Timer from '../components/Timer.jsx';
+import { Ask } from '../components/Sky.jsx';
 import GarticReveal from '../components/GarticReveal.jsx';
 import PlayerPanel from '../components/PlayerPanel.jsx';
 import { HostLobby } from '../components/Screens.jsx';
@@ -15,7 +16,7 @@ function roundLabel(t, round, taskType) {
 export default function GarticHostView({ state }) {
   const t = useT();
   if (!state) return <div className="screen center">{t('common.connecting')}</div>;
-  const { phase, players = [], round, taskType, submittedCount, totalInGame, timeRemaining, timeLimit, timeUp, reveal, canAdvance } = state;
+  const { phase, players = [], round, taskType, submittedCount, totalInGame, timeRemaining, timeLimit, reveal, canAdvance } = state;
 
   if (phase === 'lobby') {
     return <HostLobby logo={t('gartic.logo')} players={players} canStart={players.length >= 2} needHint={t('gartic.needTwo')} />;
@@ -24,9 +25,8 @@ export default function GarticHostView({ state }) {
   if (phase === 'round') {
     return (
       <div className="screen host game center">
-        <h1 className="question">{roundLabel(t, round, taskType)}</h1>
-        <TimerBar remaining={timeRemaining} limit={timeLimit} />
-        <p className="g-count">{t('gartic.done', { n: submittedCount, total: totalInGame })}{timeUp ? t('gartic.timesUpSuffix') : ''}</p>
+        <Timer remaining={timeRemaining} limit={timeLimit} size={180} className="rail" />
+        <Ask><h1 className="question">{roundLabel(t, round, taskType)}</h1></Ask>
         <button className="primary big" disabled={!canAdvance} onClick={() => socket.emit('gartic:next')}>
           {canAdvance ? t('gartic.nextRound') : t('gartic.waiting', { n: submittedCount, total: totalInGame })}
         </button>

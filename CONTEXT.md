@@ -14,6 +14,10 @@ _Avoid_: Admin, server, GM
 A person on a phone, identified by the name they joined with; rejoining with the same name is the same Player.
 _Avoid_: User, client, participant
 
+**Buddy**:
+The animal avatar a Player picks when joining; it represents them on every screen.
+_Avoid_: Avatar, icon, character
+
 **Mode**:
 One of the three games the Host can pick: Trivia, Gartic, or Fibbage.
 _Avoid_: Game type

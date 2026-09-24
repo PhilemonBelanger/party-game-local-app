@@ -1,6 +1,7 @@
 import { socket } from '../socket';
 import QrJoin from '../components/QrJoin.jsx';
-import TimerBar from '../components/TimerBar.jsx';
+import Timer from '../components/Timer.jsx';
+import { Ask } from '../components/Sky.jsx';
 import PlayerPanel from '../components/PlayerPanel.jsx';
 import FibbagePrompt, { useLangPick } from '../components/FibbagePrompt.jsx';
 import { HostLobby, HostPodium } from '../components/Screens.jsx';
@@ -13,7 +14,7 @@ export default function FibbageHostView({ state }) {
   const {
     phase, players = [], prompt, cards = [], truth, truthId, truthAttempters = [],
     promptIndex, totalPrompts, submittedCount, votedCount, totalInGame,
-    timeRemaining, timeLimit, timeUp, rankings, topThumbs, canAdvance, points = {},
+    timeRemaining, timeLimit, rankings, topThumbs, canAdvance, points = {},
   } = state;
 
   if (phase === 'lobby') {
@@ -28,21 +29,13 @@ export default function FibbageHostView({ state }) {
     );
   }
 
-  const header = (
-    <header className="qheader">
-      <span>{t('fibbage.promptXofY', { n: promptIndex + 1, total: totalPrompts })}</span>
-    </header>
-  );
+  const kicker = t('fibbage.promptXofY', { n: promptIndex + 1, total: totalPrompts });
 
   if (phase === 'answer') {
     return (
       <div className="screen host game">
-        {header}
-        <TimerBar remaining={timeRemaining} limit={timeLimit} />
-        <FibbagePrompt prompt={prompt} className="big" />
-        <p className="g-count">
-          {t('fibbage.submitted', { n: submittedCount, total: totalInGame })}{timeUp ? t('gartic.timesUpSuffix') : ''}
-        </p>
+        <Timer remaining={timeRemaining} limit={timeLimit} size={180} className="rail" />
+        <Ask kicker={kicker}><FibbagePrompt prompt={prompt} className="big" /></Ask>
         <div className="reveal-bar">
           <button className="primary big" disabled={!canAdvance} onClick={() => socket.emit('fibbage:next')}>
             {canAdvance ? t('fibbage.toVoting') : t('fibbage.waitingSubmit', { n: submittedCount, total: totalInGame })}
@@ -57,18 +50,14 @@ export default function FibbageHostView({ state }) {
   if (phase === 'vote') {
     return (
       <div className="screen host game">
-        {header}
-        <TimerBar remaining={timeRemaining} limit={timeLimit} />
-        <FibbagePrompt prompt={prompt} />
+        <Timer remaining={timeRemaining} limit={timeLimit} size={180} className="rail" />
+        <Ask kicker={kicker}><FibbagePrompt prompt={prompt} /></Ask>
         <h2 className="fb-instruct">{t('fibbage.whichTrue')}</h2>
         <div className="fb-cards host">
           {cards.map((c) => (
             <div key={c.id} className="fb-card">{pick(c.text, c.textFR)}</div>
           ))}
         </div>
-        <p className="g-count">
-          {t('fibbage.voted', { n: votedCount, total: totalInGame })}{timeUp ? t('gartic.timesUpSuffix') : ''}
-        </p>
         <div className="reveal-bar">
           <button className="primary big" disabled={!canAdvance} onClick={() => socket.emit('fibbage:next')}>
             {canAdvance ? t('fibbage.revealResults') : t('fibbage.waitingVote', { n: votedCount, total: totalInGame })}
@@ -84,8 +73,7 @@ export default function FibbageHostView({ state }) {
     const lastPrompt = promptIndex + 1 >= totalPrompts;
     return (
       <div className="screen host game">
-        {header}
-        <FibbagePrompt prompt={prompt} fill={pick(truth, state.truthFR)} className="big" />
+        <Ask kicker={kicker}><FibbagePrompt prompt={prompt} fill={pick(truth, state.truthFR)} className="big" /></Ask>
         {truthAttempters.length > 0 && (
           <div className="fb-truth-attempt">{t('fibbage.triedTruthReveal', { names: truthAttempters.join(', '), pts: points.truthAttempt })}</div>
         )}

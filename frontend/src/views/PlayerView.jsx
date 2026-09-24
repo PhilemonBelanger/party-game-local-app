@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { socket } from '../socket';
-import TimerBar from '../components/TimerBar.jsx';
+import Timer from '../components/Timer.jsx';
 import { Notice, PlayerFinal } from '../components/Screens.jsx';
 import { useKeyedState } from '../hooks.js';
 import { useT } from '../i18n.jsx';
@@ -46,12 +46,11 @@ export default function PlayerView({ state, me }) {
       <div className="screen player">
         <header className="pheader">
           <span>{t('player.qShort', { n: questionNumber, total: totalQuestions })}</span>
+          <Timer remaining={timeRemaining} limit={timeLimit} size={64} />
           <span>⭐ {myScore}</span>
         </header>
 
-        <TimerBar remaining={timeRemaining} limit={timeLimit} />
-
-        {question.text && <h2 className="player-question">{question.text}</h2>}
+        {question.text && <div className="bubble"><h2 className="player-question">{question.text}</h2></div>}
         {question.image && <img className="question-img" src={question.image} alt="" />}
 
         {answered ? (

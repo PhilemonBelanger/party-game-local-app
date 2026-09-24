@@ -8,6 +8,7 @@ import GarticHostView from './views/GarticHostView.jsx';
 import GarticPlayerView from './views/GarticPlayerView.jsx';
 import FibbageHostView from './views/FibbageHostView.jsx';
 import FibbagePlayerView from './views/FibbagePlayerView.jsx';
+import { Clouds } from './components/Sky.jsx';
 
 // state.mode → the host (TV) and player (phone) screen for that mode
 const VIEWS = {
@@ -20,7 +21,7 @@ export default function App() {
   const [role, setRole] = useState(null); // null | 'host' | 'player'
   const [state, setState] = useState(null);
   const [me, setMe] = useState(null); // my player id
-  const nameRef = useRef(null); // remembered name for auto-rejoin
+  const nameRef = useRef(null); // remembered { name, buddy } for auto-rejoin
   const roleRef = useRef(null);
 
   // Trap the Android back gesture / button so an accidental edge-swipe (common when drawing
@@ -68,15 +69,16 @@ export default function App() {
     setRole('host');
   }
 
-  function join(name) {
-    nameRef.current = name;
+  function join(name, buddy) {
+    nameRef.current = { name, buddy };
     roleRef.current = 'player';
-    socket.emit('player:join', name, ({ id }) => setMe(id));
+    socket.emit('player:join', { name, buddy }, ({ id }) => setMe(id));
     setRole('player');
   }
 
+  let screen;
   if (!role) {
-    return (
+    screen = (
       <Home
         onPickHost={() => pickHost('trivia')}
         onPickGartic={() => pickHost('gartic')}
@@ -85,8 +87,16 @@ export default function App() {
         onCreate={() => setRole('creator')}
       />
     );
+  } else if (role === 'creator') {
+    screen = <CreatorView onBack={() => setRole(null)} />;
+  } else {
+    const View = (VIEWS[state?.mode] || VIEWS.trivia)[role];
+    screen = <View state={state} me={me} />;
   }
-  if (role === 'creator') return <CreatorView onBack={() => setRole(null)} />;
-  const View = (VIEWS[state?.mode] || VIEWS.trivia)[role];
-  return <View state={state} me={me} />;
+  return (
+    <>
+      <Clouds />
+      {screen}
+    </>
+  );
 }

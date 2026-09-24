@@ -1,0 +1,31 @@
+/* Bundled fonts (latin subset, woff2 only) — the app runs offline on a LAN / as an exe,
+   so nothing loads from a CDN. The single-file build inlines these (~70 KB). Latin covers
+   French accents (é, à, ç, …). */
+@font-face {
+  font-family: 'Lilita One';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../node_modules/@fontsource/lilita-one/files/lilita-one-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Baloo 2';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../node_modules/@fontsource/baloo-2/files/baloo-2-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Baloo 2';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../node_modules/@fontsource/baloo-2/files/baloo-2-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Baloo 2';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('../node_modules/@fontsource/baloo-2/files/baloo-2-latin-800-normal.woff2') format('woff2');
+}

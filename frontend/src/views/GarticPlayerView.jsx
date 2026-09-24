@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { socket } from '../socket';
 import DrawCanvas from '../components/DrawCanvas.jsx';
-import TimerBar from '../components/TimerBar.jsx';
+import Timer from '../components/Timer.jsx';
 import GarticReveal from '../components/GarticReveal.jsx';
 import { Notice, Spectating } from '../components/Screens.jsx';
 import { useKeyedState, usePhaseInput } from '../hooks.js';
@@ -78,7 +78,7 @@ export default function GarticPlayerView({ state }) {
 
   return (
     <div className="screen player gartic-play">
-      <TimerBar remaining={timeRemaining} limit={timeLimit} />
+      <div className="timer-row"><Timer remaining={timeRemaining} limit={timeLimit} size={64} /></div>
 
       {input.submitted ? (
         <Notice grow title={t('gartic.lockedIn')} hint={t('gartic.waitOthers')} />

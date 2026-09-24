@@ -1,6 +1,7 @@
 import { socket } from '../socket';
 import QrJoin from './QrJoin.jsx';
 import PlayerPanel from './PlayerPanel.jsx';
+import { Buddy, Wordmark } from './Sky.jsx';
 import { useT } from '../i18n.jsx';
 
 // Screens shared by the three game modes.
@@ -20,27 +21,43 @@ export function Spectating() {
   return <Notice title={t('gartic.spectating')} hint={t('gartic.spectatingHint')} />;
 }
 
-// Host lobby: logo, QR, who's in, Start. `children` slots mode extras (trivia quiz loader).
+// Host lobby: wordmark + mode + Start (left), QR card (right), everyone's buddy hopping on
+// the hill (bottom). `children` slots mode extras (trivia quiz loader) under Start.
 export function HostLobby({ logo, players, canStart, needHint, children }) {
   const t = useT();
   return (
-    <div className="screen host center">
-      <h1 className="logo">{logo}</h1>
-      <p className="hint">{t('host.scanJoin')}</p>
-      <QrJoin size={300} showUrl />
-      {children}
-      <h2>{t('host.playersReady', { n: players.length })}</h2>
-      <ul className="playerlist">
-        {players.map((p) => (
-          <li key={p.id} style={{ opacity: p.connected ? 1 : 0.5 }}>{p.name}</li>
+    <div className="lobby">
+      <div className="hill" />
+      <div className="lobby-brand">
+        <Wordmark size={110} />
+        <div className="lobby-mode">{logo}</div>
+        <button className="primary" disabled={!canStart} onClick={() => socket.emit('host:start')}>
+          {t('host.startGo')}
+        </button>
+        {!canStart && needHint && <p className="hint">{needHint}</p>}
+        {children}
+      </div>
+      <div className="lobby-qr">
+        <QrJoin size={230} />
+        <div className="qr-title">{t('host.scanHop')}</div>
+        <QrUrl />
+      </div>
+      <div className="lobby-crowd">
+        {players.length === 0 && <div className="lobby-empty">{t('host.waitingCrowd')}</div>}
+        {players.map((p, i) => (
+          <div key={p.id} className="who">
+            <Buddy player={p} size={104} off={!p.connected} hop={p.connected} delay={i * 0.22} />
+            <span className="name-pill" style={{ opacity: p.connected ? 1 : 0.6 }}>{p.name}</span>
+          </div>
         ))}
-      </ul>
-      <button className="primary big" disabled={!canStart} onClick={() => socket.emit('host:start')}>
-        {t('common.startGame')}
-      </button>
-      {!canStart && needHint && <p className="hint">{needHint}</p>}
+      </div>
     </div>
   );
+}
+
+// the join URL under the lobby QR (QrJoin renders it when showUrl is set)
+function QrUrl() {
+  return <QrJoin size={0} showUrl urlOnly />;
 }
 
 // Host podium: top 3 (ties can mean more) on steps, the rest listed. `children` = mode extras.
@@ -60,7 +77,7 @@ export function HostPodium({ rankings = [], players, children }) {
       {rest.length > 0 && (
         <ul className="restlist">
           {rest.map((p) => (
-            <li key={p.id}>#{p.rank} {p.name} — {p.score}</li>
+            <li key={p.id}>#{p.rank} {p.name} · {p.score}</li>
           ))}
         </ul>
       )}
@@ -74,6 +91,7 @@ export function HostPodium({ rankings = [], players, children }) {
 function Step({ place, p }) {
   return (
     <div className={`step step-${place}`}>
+      <Buddy player={p} size={place === 1 ? 110 : 86} hop={place === 1} />
       <div className="medal">{place === 1 ? '🥇' : place === 2 ? '🥈' : '🥉'}</div>
       <div className="step-name">{p.name}</div>
       <div className="step-score">{p.score}</div>

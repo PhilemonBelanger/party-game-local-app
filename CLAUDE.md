@@ -12,7 +12,9 @@ Node + Express + Socket.IO backend, all game state in server memory. User docs: 
 
 ## Commands
 - `just test` — backend tests, ~0.1s, no Docker. Run after every backend change.
-- `cd frontend; npx vite build` — the only frontend check (catches compile errors; UI behavior is verified by hand).
+- `cd frontend; npx vite build` — frontend compile check.
+- **Look at the UI** without a backend: run `npx vite` in `frontend/` and open `/?dev=gallery` (every real screen
+  with fixture states, `src/dev/fixtures.js`); headless-screenshot it to verify a visual change.
 - `just dev` / `just prod` / `just build-exe` — see docs/running.md. The `justfile` lists the rest.
 
 ## Architecture
@@ -23,8 +25,9 @@ socket→player map, the active mode, and dispatch: hub events (`host:join`, `ho
 `{ok:false, reason:'inactive'}`).
 
 **Players** are keyed by lowercased name and survive disconnects: rejoining with the same name resumes the same
-player; if the old socket is still live it is unmapped and sent `player:replaced`. The hub stores identity only
-(`{id,name,connected,socketId}`); each mode keeps its own per-player data under the same key. Readiness counts
+player; if the old socket is still live it is unmapped and sent `player:replaced`. `player:join` takes
+`{name, buddy}` (a bare name still works); the **buddy** is the emoji avatar picked on the join screen, stored
+as-is and carried in the roster and podium rankings. The hub stores identity only (`{id,name,buddy,connected,socketId}`); each mode keeps its own per-player data under the same key. Readiness counts
 **connected** players only (`allDone` in `shared.js`), so a dropped player never stalls the host.
 
 **Mode interface** — trivia.js, gartic.js, fibbage.js each return
@@ -45,6 +48,14 @@ per-second payload. Private messages carry their own `gameId`/tags, and the serv
 `useKeyedState(key)` (`hooks.js`), which resets by derivation when `gameId`/`step` changes, so a private message
 arriving just after a `state` broadcast lands on the right step. Every timed input goes through `usePhaseInput`:
 submitted/lockedOut, the 2s **draft** heartbeat, and a final draft at time-up. Shared screens: `components/Screens.jsx`.
+
+**Look: Sky Candy.** Sky gradient + drifting clouds (`Clouds`, mounted once in App), white cards, pill buttons,
+Lilita One (display) + Baloo 2 (text) — bundled from `@fontsource` via `src/fonts.css` (woff2, latin only; the app
+runs offline, so nothing loads from a CDN). Building blocks in `components/Sky.jsx`: `Buddy` (a player's emoji in a
+bubble; `buddies.js` holds the list and the name-hash fallback), `Ask` (owl host + speech bubble for host
+questions), `Wordmark`. `components/Timer.jsx` is the ring countdown (ring + number disc shift green → red);
+`className="rail"` pins it top-right on host screens above the `PlayerPanel` roster. Tokens live at the top of
+`styles.css`.
 
 ## Rules
 - The server is **authoritative** for scoring, answer visibility and readiness; clients render `state`.

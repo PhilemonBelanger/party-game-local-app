@@ -5,7 +5,8 @@ import { useT } from '../i18n.jsx';
 
 // Builds the join URL from the backend-detected LAN IP + the page's own port,
 // so the QR is scannable even when the host opened the page at localhost.
-export default function QrJoin({ size = 160, showUrl = false }) {
+// urlOnly: render just the URL line (+ LAN warning), no QR.
+export default function QrJoin({ size = 160, showUrl = false, urlOnly = false }) {
   const t = useT();
   const [host, setHost] = useState(null);
 
@@ -16,6 +17,7 @@ export default function QrJoin({ size = 160, showUrl = false }) {
   }, []);
 
   if (!host) {
+    if (urlOnly) return null;
     return (
       <div className="qrjoin">
         <div className="qr-box" style={{ width: size, height: size }} />
@@ -29,9 +31,11 @@ export default function QrJoin({ size = 160, showUrl = false }) {
 
   return (
     <div className="qrjoin">
-      <div className="qr-box">
-        <QRCodeSVG value={url} size={size} bgColor="#ffffff" fgColor="#0f1226" level="M" />
-      </div>
+      {!urlOnly && (
+        <div className="qr-box">
+          <QRCodeSVG value={url} size={size} bgColor="#ffffff" fgColor="#173a5e" level="M" />
+        </div>
+      )}
       {showUrl && <div className="qr-url">{url}</div>}
       {showUrl && isLocal && (
         <div className="qr-warn">
